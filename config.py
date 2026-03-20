@@ -1,0 +1,14 @@
+import os
+
+DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN", "")
+MAX_FILE_SIZE: int = 256 * 1024
+OBFUSCATION_TIMEOUT: int = 60
+ALLOWED_EXTENSIONS: set = {".py"}
+
+ENABLE_NORMALIZE = True
+ENABLE_TRANSFORM = True
+ENABLE_IR_OBF    = True
+ENABLE_VM        = True
+
+VM_POLY_PERIOD   = 32
+VM_PRNG_SEED_MIX = True

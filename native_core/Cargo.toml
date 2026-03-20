@@ -1,0 +1,18 @@
+[package]
+name    = "pyrph_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name      = "pyrph_core"
+crate-type = ["cdylib"]   # compile → .so / .pyd
+
+[dependencies]
+pyo3 = { version = "0.21", features = ["extension-module"] }
+
+[profile.release]
+opt-level     = 3
+lto           = true
+codegen-units = 1
+panic         = "abort"
+strip         = true      # strip debug symbols
