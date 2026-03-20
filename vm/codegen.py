@@ -121,13 +121,36 @@ class VMCodeGen:
 
     # ── Instruction stream ────────────────────────────────────────────────────
     def _emit_instructions(self, bc: VM3Bytecode, ic_seed: int = 0) -> str:
-        stream = []
+        stream       = []
+        _str_intern: dict[str, int] = {}   # operand string → encrypted ID
+        _str_ctr     = 0
+        def _intern(s: str, enc_op: int, bk: int, idx: int) -> int:
+            nonlocal _str_ctr
+            if s not in _str_intern:
+                _str_intern[s] = _str_ctr
+                _str_ctr += 1
+            sid = _str_intern[s]
+            k   = ((enc_op ^ bk) * 0x6C62272E + idx) & 0xFFFFFFFF
+            return (sid ^ k) & 0xFFFFFFFF
         for instr in bc.instructions:
-            meta  = getattr(instr, "meta", {})
+            meta     = getattr(instr, "meta", {})
+            blk_key  = instr.block_key if hasattr(instr, "block_key") and instr.block_key else 0
+            enc_op_v = instr.enc_op if instr.enc_op is not None else 0
+            # Encrypt operand values (integers and string IDs)
+            enc_ops  = []
+            for oi, op in enumerate(instr.operands):
+                kind, typ, val = op
+                if isinstance(val, int):
+                    k   = ((enc_op_v ^ blk_key) * 0x6C62272E + oi) & 0xFFFFFFFF
+                    val = (val ^ k) & 0xFFFFFFFF
+                elif isinstance(val, str):
+                    val = _intern(val, enc_op_v, blk_key, oi)
+                enc_ops.append([kind, typ, val])
             entry: dict = {
                 "e": instr.enc_op,
                 "v": instr.vm_slot,
-                "o": instr.operands,
+                "o": enc_ops,
+                "bk": blk_key,
             }
             if meta.get("ch") is not None:
                 entry["ch"] = meta["ch"]
@@ -163,6 +186,17 @@ class VMCodeGen:
           - _ROTM resolver (ResolverV2 formula)
         """
         return '''
+# ── Operand encryption ──────────────────────────────────────────────────────
+_OE_MASK = 0xFFFFFFFF
+_OE_MUL  = 0x6C62272E
+
+def _oe_key(enc_op, blk_key, idx):
+    return ((enc_op ^ blk_key) * _OE_MUL + idx) & _OE_MASK
+
+def _oe_dec(val, enc_op, blk_key, idx):
+    if isinstance(val, int): return (val ^ _oe_key(enc_op, blk_key, idx)) & _OE_MASK
+    return val
+
 _M32  = 0xFFFFFFFF
 _GLD  = 0x9E3779B9
 _ROTM = 0x6C62272E
@@ -269,7 +303,7 @@ class _VM3:
 
             if effective_slot == 0:
                 op = self.r1.resolve(enc)
-                self._v1(op & 0xFF, ops, lbl, a, b, tmp)
+                self._v1(op & 0xFF, ops, lbl, a, b, tmp, _enc=enc, _bk=ins.get("bk",0))
                 # Cross-key: after VM1 → update VM2 key
                 self.r2.key = hash(self.r1.last_output) & _M32
                 # Feed result into data_flow for next resolver
@@ -278,14 +312,30 @@ class _VM3:
                 self.R1.tick(self.pc, op)
             else:
                 op = self.r2.resolve(enc)
-                self._v2(op & 0xFF, ops, lbl, a, b, tmp)
+                self._v2(op & 0xFF, ops, lbl, a, b, tmp, _enc=enc, _bk=ins.get("bk",0))
                 # Cross-key: after VM2 → update VM1 key
                 self.r1.key = hash(self.r2.state) & _M32
                 self.r2.feed(self.r2.last_output)
                 self.R2.tick(self.pc, op)
 
             if self.ret is not self._done:
-                return self.ret
+                # ── Stage 7+8: PostVM + VM4 ────────────────────────────
+                _vm_state = (self.r1.state ^ self.r2.state) & _M32
+                _fn_id    = hash(str(id(self))) & _M32
+                _res      = self.ret
+                # Stage 7: PostVM chain (PDL→TBL→OEL→DLI→PEIL)
+                try:
+                    _res = __postvm_apply(_res, _vm_state, _fn_id)
+                except Exception:
+                    pass
+                # Stage 8: VM4 Fragment Graph + DNA Lock
+                try:
+                    _sag_fn = lambda: globals().get('__sag_state', 0)
+                    _mcp_fn = lambda: globals().get('__MCP_SEED', 0)
+                    _res = _vm4_apply(_res, _vm_state, _sag_fn, _mcp_fn)
+                except Exception:
+                    pass
+                return _res
         return None
 
     # ── Register helpers (use _SS split-state) ────────────────────────────────
@@ -317,22 +367,41 @@ class _VM3:
         except: pass
 
     @staticmethod
-    def _dst(ops):
-        for t,tp,v in ops:
-            if t=="dst": return v
+    def _dec_op(val, enc_op, bk, idx):
+        """Decrypt one operand value."""
+        if isinstance(val, int):
+            k = ((enc_op ^ bk) * 0x6C62272E + idx) & 0xFFFFFFFF
+            return (val ^ k) & 0xFFFFFFFF
+        return val
+
+    @staticmethod
+    def _dst(ops, enc=0, bk=0):
+        for i,(t,tp,v) in enumerate(ops):
+            if t=="dst":
+                return _VM3._dec_op(v, enc, bk, i)
         return None
     @staticmethod
-    def _src(ops, n):
-        s=[v for t,tp,v in ops if t=="src"]
-        return s[n] if n<len(s) else None
+    def _src(ops, n, enc=0, bk=0):
+        srcs = [(i,v) for i,(t,tp,v) in enumerate(ops) if t=="src"]
+        if n < len(srcs):
+            i, v = srcs[n]
+            return _VM3._dec_op(v, enc, bk, i)
+        return None
     @staticmethod
-    def _lbl(ops):
-        for t,tp,v in ops:
-            if t=="lbl": return v
+    def _lbl(ops, enc=0, bk=0):
+        for i,(t,tp,v) in enumerate(ops):
+            if t=="lbl":
+                # Labels are encrypted string IDs → look up in string table
+                dec = _VM3._dec_op(v, enc, bk, i)
+                # Try __SR first, fallback to direct
+                try:
+                    return __SR.get(dec) if isinstance(dec, int) else str(dec)
+                except Exception:
+                    return str(dec)
         return None
 
-    def _v1(self, o, ops, lbl, a, b, tmp):
-        d=self._dst(ops); s=lambda n:self._src(ops,n); lb=self._lbl(ops)
+    def _v1(self, o, ops, lbl, a, b, tmp, _enc=0, _bk=0):
+        d=self._dst(ops,_enc,_bk); s=lambda n:self._src(ops,n,_enc,_bk); lb=self._lbl(ops,_enc,_bk)
         if a:
             self.env[str(tmp)] = self._resolve_val(s(0)); return
         if o==0x00: return
@@ -427,8 +496,8 @@ class _VM3:
             except: pass
             return
 
-    def _v2(self, o, ops, lbl, a, b, tmp):
-        d=self._dst(ops); s=lambda n:self._src(ops,n); lb=self._lbl(ops)
+    def _v2(self, o, ops, lbl, a, b, tmp, _enc=0, _bk=0):
+        d=self._dst(ops,_enc,_bk); s=lambda n:self._src(ops,n,_enc,_bk); lb=self._lbl(ops,_enc,_bk)
         if b:
             left  = self.env.get(str(tmp))
             right = self._resolve_val(s(1))
