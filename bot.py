@@ -1,6 +1,5 @@
 """
-Pyrph – Discord Obfuscation Bot
-Entry point: handles slash commands, file upload/download, and pipeline dispatch.
+Pyrph – Discord Obfuscation Bot  (V4 – Parallel Dual-Engine)
 """
 import asyncio
 import io
@@ -15,38 +14,35 @@ from discord.ext import commands
 import config
 from pipeline import ObfuscationPipeline
 
-# ──────────────────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot      = commands.Bot(command_prefix="!", intents=intents)
 pipeline = ObfuscationPipeline()
 
 BANNER = """
-╔══════════════════════════════════════════╗
-║   P Y R P H  •  Python Obfuscator v1.0  ║
-║   Poly-Triple-Layer VM  •  AST+IR+VM     ║
-╚══════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════╗
+║  P Y R P H  v4  •  God-Tier Python Obfuscator           ║
+║  Parallel Dual-Engine  •  9.5 Stages  •  Rust Native    ║
+╚══════════════════════════════════════════════════════════╝
 """.strip()
 
-# ──────────────────────────────────────────────────────────────────────────────
+
 @bot.event
 async def on_ready():
     await bot.tree.sync()
+    from native_bridge import status as _ncs
     print(f"[Pyrph] Logged in as {bot.user} (id={bot.user.id})")
     print(BANNER)
+    print(f"[Pyrph] {_ncs()}")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 @bot.tree.command(name="obfuscate", description="Obfuscate a Python (.py) file")
 @app_commands.describe(file="The .py file to obfuscate")
 async def obfuscate(interaction: discord.Interaction, file: discord.Attachment):
     await interaction.response.defer(thinking=True)
 
-    # ── Validate ──────────────────────────────────────────────────────────────
     if not file.filename.endswith(".py"):
-        await interaction.followup.send(
-            "❌ Only `.py` files are accepted.", ephemeral=True
-        )
+        await interaction.followup.send("❌ Only `.py` files are accepted.", ephemeral=True)
         return
 
     if file.size > config.MAX_FILE_SIZE:
@@ -56,17 +52,15 @@ async def obfuscate(interaction: discord.Interaction, file: discord.Attachment):
         )
         return
 
-    # ── Read source ───────────────────────────────────────────────────────────
     try:
-        raw = await file.read()
+        raw    = await file.read()
         source = raw.decode("utf-8")
     except Exception as e:
         await interaction.followup.send(f"❌ Could not read file: `{e}`", ephemeral=True)
         return
 
-    # ── Run pipeline (with timeout) ───────────────────────────────────────────
     try:
-        loop = asyncio.get_event_loop()
+        loop   = asyncio.get_event_loop()
         result = await asyncio.wait_for(
             loop.run_in_executor(None, pipeline.run, source),
             timeout=config.OBFUSCATION_TIMEOUT,
@@ -83,10 +77,12 @@ async def obfuscate(interaction: discord.Interaction, file: discord.Attachment):
         )
         return
 
-    # ── Send result ───────────────────────────────────────────────────────────
-    out_name = file.filename.replace(".py", "_pyrph.py")
+    out_name  = file.filename.replace(".py", "_pyrph.py")
     out_bytes = result.encode("utf-8")
-    out_file = discord.File(io.BytesIO(out_bytes), filename=out_name)
+    out_file  = discord.File(io.BytesIO(out_bytes), filename=out_name)
+
+    from native_bridge import NATIVE_AVAILABLE
+    native_badge = "🦀 Rust" if NATIVE_AVAILABLE else "🐍 Python"
 
     embed = discord.Embed(
         title="✅ Obfuscation Complete",
@@ -94,57 +90,64 @@ async def obfuscate(interaction: discord.Interaction, file: discord.Attachment):
         description=(
             f"**Input:** `{file.filename}` ({file.size:,} bytes)\n"
             f"**Output:** `{out_name}` ({len(out_bytes):,} bytes)\n\n"
-            "Pipeline: **AST Normalize → AST Transform → IR Gen → IR Obf → VM3**"
+            f"**Engine:** {native_badge} | 9.5 Stages active\n"
+            "Pipeline: **Normalize → Transform → IR → SAG → "
+            "Metamorphic → VM3 → PostVM → VM4 → Parallel**"
         ),
     )
-    embed.set_footer(text="Pyrph • Poly-Triple-Layer VM Obfuscator")
+    embed.set_footer(text="Pyrph • God-Tier Python Obfuscator")
     await interaction.followup.send(embed=embed, file=out_file)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 @bot.tree.command(name="info", description="Show Pyrph pipeline info")
 async def info(interaction: discord.Interaction):
+    from native_bridge import status as _ncs, NATIVE_AVAILABLE
+    _nt = "🦀 Rust NATIVE (pyrph_core.so)" if NATIVE_AVAILABLE else "🐍 Python fallback (no .so)"
     embed = discord.Embed(
-        title="Pyrph Pipeline",
+        title="Pyrph v4 – Pipeline Info",
         color=0x5865F2,
         description=(
+            "**Native Core:** `" + _nt + "`\n\n"
             "```\n"
-            "1. AST Normalize\n"
-            "   ├─ Lambda inliner\n"
-            "   ├─ Comprehension expander\n"
-            "   ├─ Ternary expander\n"
-            "   └─ Syntactic sugar remover\n\n"
-            "2. AST Transform\n"
-            "   ├─ Control Flow Flattening (state machine)\n"
-            "   ├─ MBA Expression Expansion\n"
-            "   ├─ String Lifting → table\n"
-            "   ├─ Constant Virtualization\n"
-            "   ├─ Function Splitting (dispatcher)\n"
-            "   └─ Opaque Predicates\n\n"
-            "3. IR Generation\n"
-            "   ├─ Instruction-level IR nodes\n"
-            "   ├─ Control Flow Graph\n"
-            "   └─ Dependency Graph\n\n"
-            "4. IR Obfuscation\n"
-            "   ├─ Instruction Substitution\n"
-            "   ├─ Instruction Shuffler + Jump Table\n"
-            "   ├─ Control Flow Rewriter\n"
-            "   └─ Block Encryptor\n\n"
-            "5. VM (Poly-Triple-Layer)\n"
-            "   ├─ VM1: Stack+Register hybrid (inner)\n"
-            "   ├─ VM2: Side VM (different logic)\n"
-            "   ├─ VM3: Merged opcode executor\n"
-            "   ├─ AC-wave + PRNG + data scheduler\n"
-            "   ├─ Instruction interleaving (split ADD→VM1+VM2)\n"
-            "   ├─ Cross-key dependency (VM1↔VM2)\n"
-            "   └─ Polymorphic opcode resolver (no static map)\n"
+            "Stage 1    AST Normalize\n"
+            "           Lambda · Comprehension · Ternary · Sugar\n\n"
+            "Stage 2    AST Transform\n"
+            "           CFF · MBA · StringLift · ConstVirt\n"
+            "           FuncSplit · OpaquePredicates\n\n"
+            "Stage 3    IR Generation\n"
+            "           50+ opcodes · CFG · Def-use chains\n\n"
+            "Stage 4    IR Obfuscation (7 passes)\n"
+            "           ImportObf · SemanticFP · Substitution\n"
+            "           Shuffler · Rewriter · Encryptor · MCP\n\n"
+            "Stage 4.5  Semantic Alias Graph (SAG)\n"
+            "           Multi-source aliases · Observer effect\n"
+            "           Cross-variable cycles (anti-SSA)\n\n"
+            "Stage 5    Metamorphic Engine\n"
+            "           3 variants/fn · 6 micro-transforms\n"
+            "           hash(session_key, args, counter) dispatch\n\n"
+            "Stage 6    VM3 (Poly-Triple-Layer)\n"
+            "           VM1+VM2+VM3 · AC-wave scheduler\n"
+            "           Split-state regs (_SS) · ICV chain\n"
+            "           Polymorphic resolver (no static map)\n"
+            "           Anti-snapshot · Env check · StrFrag\n\n"
+            "Stage 7    Post-VM Protection\n"
+            "           PDL → TBL → OEL → DLI → PEIL\n\n"
+            "Stage 8    VM4 Fragment Graph\n"
+            "           FG · Fabric · State Mesh · DNA Lock\n\n"
+            "Stage 9    Native Rust (pyrph_core.so)\n"
+            "           resolver · SS regs · sched · peil · dna\n\n"
+            "Stage 9.5  Parallel Dual-Engine\n"
+            "           Mode 1: Thread parallel\n"
+            "           Mode 2: Process parallel (IPC)\n"
+            "           Mode 3: Interleaved (cross-key dep)\n"
+            "           combine(vm3, rust_confirm, cross_key)\n"
             "```"
         ),
     )
+    embed.set_footer(text="Pyrph • God-Tier Python Obfuscator")
     await interaction.response.send_message(embed=embed)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     if not config.DISCORD_TOKEN:
         raise RuntimeError("DISCORD_TOKEN env var not set.")
