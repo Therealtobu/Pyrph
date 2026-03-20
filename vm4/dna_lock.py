@@ -38,6 +38,11 @@ class DNALockEmitter:
     def emit_runtime() -> str:
         return r'''
 # ── L4: DNA Lock + Output Reconstruction ─────────────────────────────────────
+try:
+    import pyrph_core as _NC; _NC_NATIVE = True
+except ImportError:
+    _NC = None; _NC_NATIVE = False
+
 import time as _dna_time
 
 _DNA_MASK  = 0xFFFFFFFF
@@ -123,7 +128,16 @@ def _dna_reconstruct(sm_state: dict, dna_partial: int,
     Full reconstruction pipeline:
     finalize DNA → extract r1/r2 → mix → return.
     """
-    dna      = _dna_finalize(dna_partial, hist, sm_state, visit_counts)
+    if _NC_NATIVE:
+        order_s  = hash(tuple(x for x in hist[-16:] if isinstance(x,int))) & _DNA_MASK
+        visit_h  = hash(tuple(sorted(visit_counts.items()))) & _DNA_MASK
+        state_h  = hash(tuple(sorted((k,v) for k,v in sm_state.items() if isinstance(v,int)))) & _DNA_MASK
+        try:
+            import time as _t; tj = _t.perf_counter_ns() & 0xFFF
+        except Exception: tj = 0
+        dna = _NC.dna_finalize(dna_partial, order_s, visit_h, state_h, tj)
+    else:
+        dna = _dna_finalize(dna_partial, hist, sm_state, visit_counts)
     r1       = _dna_extract_path_a(sm_state, dna)
     r2       = _dna_extract_path_b(sm_state, dna)
     hist_h   = hash(tuple(x for x in hist[-8:] if isinstance(x, int))) & _DNA_MASK

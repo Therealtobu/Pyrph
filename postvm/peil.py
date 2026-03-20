@@ -30,6 +30,11 @@ class PEILEmitter:
     def emit_runtime() -> str:
         return r'''
 # ── PEIL: Post-Execution Integrity Layer ─────────────────────────────────────
+try:
+    import pyrph_core as _NC; _NC_NATIVE = True
+except ImportError:
+    _NC = None; _NC_NATIVE = False
+
 _PEIL_MASK   = 0xFFFFFFFF
 _PEIL_GOLDEN = 0x9E3779B9
 _PEIL_HIST   = []       # rolling call trace: [(fn_hash, result_hash), ...]
@@ -56,6 +61,8 @@ def __peil_checkpoint(vm_state: int, sag_state: int) -> int:
     Called at key points inside VM3 execution.
     """
     hist_h = hash(tuple(_PEIL_HIST[-4:])) & _PEIL_MASK if _PEIL_HIST else 0
+    if _NC_NATIVE:
+        return _NC.peil_checkpoint(vm_state, sag_state, _PEIL_DEPTH, _PEIL_COUNT, hist_h)
     # Use multiplicative mixing to avoid XOR symmetry collisions
     mixed = (vm_state * 0x9E3779B9 + sag_state) & _PEIL_MASK
     mixed = (mixed ^ hist_h ^ (_PEIL_DEPTH * 0x5851F42D) ^ (_PEIL_COUNT * 0x6C62272E)) & _PEIL_MASK
@@ -79,12 +86,15 @@ def __peil_verify(result, checkpoint_expected: int,
         return result
 
     # Mismatch detected → corrupt subtly
-    degree = bin(diff).count('1') & 0xF   # hamming weight of diff → degree 0-16
+    if _NC_NATIVE:
+        return _NC.peil_corrupt(result, diff)
+    degree = bin(diff).count('1') & 0xF
     noise  = (degree * _PEIL_GOLDEN) & _PEIL_MASK
 
     if isinstance(result, int):
+        if _NC_NATIVE:
+            return _NC.peil_corrupt(result, diff)
         corrupted = (result ^ noise) & _PEIL_MASK
-        # Preserve sign for small integers
         if -1000 < result < 1000:
             corrupted = result + (degree & 3) - 1
         return corrupted

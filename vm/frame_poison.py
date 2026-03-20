@@ -21,6 +21,11 @@ class FramePoisoner:
     @staticmethod
     def emit_runtime() -> str:
         return r'''
+try:
+    import pyrph_core as _NC; _NC_NATIVE = True
+except ImportError:
+    _NC = None; _NC_NATIVE = False
+
 _FP_MASK = 0xFFFFFFFF
 _FP_MUL  = 0x5851F42D
 _NONINT  = 0xDEADC0DE
@@ -43,8 +48,12 @@ class _SS:
     def write(self, idx: int, val):
         i = idx & 0xF
         if isinstance(val, int):
-            self._a[i] = (val ^ self._k1) & _FP_MASK
-            self._b[i] = (self._k1 ^ self._k2) & _FP_MASK
+            if _NC_NATIVE:
+                self._a[i], self._b[i] = _NC.ss_write(
+                    val & _FP_MASK, self._k1, self._k2)
+            else:
+                self._a[i] = (val ^ self._k1) & _FP_MASK
+                self._b[i] = (self._k1 ^ self._k2) & _FP_MASK
         else:
             self._a[i] = val
             self._b[i] = _NONINT
@@ -53,6 +62,8 @@ class _SS:
         i = idx & 0xF
         if self._b[i] == _NONINT:
             return self._a[i]
+        if _NC_NATIVE:
+            return _NC.ss_read(self._a[i], self._b[i], self._k2)
         raw = (self._a[i] ^ self._b[i] ^ self._k2) & _FP_MASK
         return _fp_s32(raw)
 
@@ -63,9 +74,14 @@ class _SS:
         self._k2 = hash(self._k1 ^ last_op) & _FP_MASK
         for i in range(len(self._a)):
             if self._b[i] != _NONINT:
-                decoded  = _fp_s32((self._a[i] ^ self._b[i] ^ old_k2) & _FP_MASK)
-                self._a[i] = (decoded ^ self._k1) & _FP_MASK
-                self._b[i] = (self._k1 ^ self._k2) & _FP_MASK
+                if _NC_NATIVE:
+                    na, nb, self._k1, self._k2 = _NC.ss_tick(
+                        self._a[i], self._b[i], self._k1, self._k2, pc, last_op)
+                    self._a[i] = na; self._b[i] = nb
+                else:
+                    decoded  = _fp_s32((self._a[i] ^ self._b[i] ^ old_k2) & _FP_MASK)
+                    self._a[i] = (decoded ^ self._k1) & _FP_MASK
+                    self._b[i] = (self._k1 ^ self._k2) & _FP_MASK
 '''
 
     @staticmethod

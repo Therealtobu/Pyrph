@@ -39,6 +39,11 @@ class ExecutionFabricEmitter:
     def emit_runtime() -> str:
         return r'''
 # ── L2: Execution Fabric ──────────────────────────────────────────────────────
+try:
+    import pyrph_core as _NC; _NC_NATIVE = True
+except ImportError:
+    _NC = None; _NC_NATIVE = False
+
 import time as _ef_time
 
 _EF_MASK    = 0xFFFFFFFF
@@ -79,6 +84,8 @@ def _ef_causality_key(last_out_hash: int,
                       sag_state: int,
                       dna_partial: int) -> int:
     """ICB key: fragment can only be decoded after prev output known."""
+    if _NC_NATIVE:
+        return _NC.causality_key(last_out_hash, sag_state, dna_partial)
     return (hash((last_out_hash, sag_state, dna_partial)) & _EF_MASK)
 
 

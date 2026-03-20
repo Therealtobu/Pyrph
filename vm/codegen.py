@@ -32,6 +32,7 @@ from vm.anti_snapshot     import AntiSnapshot
 from sag.sag_pass          import SAGPass as _SAGPass
 from postvm.engine         import PostVMEngine as _PostVMEngine
 from vm4.vm4_engine        import VM4Engine as _VM4Engine
+from parallel_engine.coordinator import ParallelCoordinatorEmitter as _PEEmitter
 
 
 _INDENT = "    "
@@ -62,6 +63,7 @@ class VMCodeGen:
         if sag_rt: parts.append(sag_rt)
         parts.append(self._emit_postvm_runtime(ir_module))
         parts.append(self._emit_vm4_runtime(ir_module))
+        parts.append(self._emit_parallel_runtime())
         parts.append(self._emit_bootstrap(bc, ic_seed))
         return "\n\n".join(parts)
 
@@ -186,6 +188,14 @@ class VMCodeGen:
           - _ROTM resolver (ResolverV2 formula)
         """
         return '''
+# ── Native bridge (pyrph_core.so if available) ───────────────────────────────
+try:
+    import pyrph_core as _NC
+    _NC_NATIVE = True
+except ImportError:
+    _NC = None
+    _NC_NATIVE = False
+
 # ── Operand encryption ──────────────────────────────────────────────────────
 _OE_MASK = 0xFFFFFFFF
 _OE_MUL  = 0x6C62272E
@@ -209,11 +219,15 @@ class _Res:
         self.prev_op   = 0
         self.data_flow = 0
     def resolve(self, enc):
-        base    = ((enc ^ self.key) + self.state) ^ (self.state >> 3)
-        base   &= _M32
-        rotated = (base ^ (self.prev_op * _ROTM)) & _M32
-        op      = (rotated + self.data_flow) ^ ((self.data_flow << 7) & _M32)
-        op     &= _M32
+        if _NC_NATIVE:
+            op = _NC.resolve_op(enc, self.key, self.state,
+                                self.prev_op, self.data_flow)
+        else:
+            base    = ((enc ^ self.key) + self.state) ^ (self.state >> 3)
+            base   &= _M32
+            rotated = (base ^ (self.prev_op * _ROTM)) & _M32
+            op      = (rotated + self.data_flow) ^ ((self.data_flow << 7) & _M32)
+            op     &= _M32
         self.last_output = op
         self.prev_op     = op
         s = self.state
@@ -259,14 +273,21 @@ class _VM3:
         self._ic  = 0   # instruction counter for anti-snapshot
 
     def _sched_pick(self, data=0):
-        """AC-wave + PRNG + data → vm_slot. Runtime dynamic, not compile-time."""
-        import math as _m
-        w  = abs(_m.sin(self._cycle * self._omega + self._prng * 0.001))
-        wb = int(w * 0xFF) & 0xFF
-        es = (self.r1.state ^ self.r2.state) & 0xFF
-        db = data & 0xFF
-        vm_id = (wb ^ es ^ db) & 1
-        self._prng = ((self._prng * 0x6C622) + 0x14057) & _M32
+        """AC-wave + PRNG + data → vm_slot. Uses NC if available."""
+        if _NC_NATIVE:
+            pool_size  = 2
+            state_hash = (self.r1.state ^ self.r2.state) & _M32
+            hist_hash  = (self._prng ^ self._cycle) & _M32
+            vm_id      = _NC.sched_pick(pool_size, state_hash,
+                                        self._prng, hist_hash, self._cycle)
+        else:
+            import math as _m
+            w  = abs(_m.sin(self._cycle * self._omega + self._prng * 0.001))
+            wb = int(w * 0xFF) & 0xFF
+            es = (self.r1.state ^ self.r2.state) & 0xFF
+            db = data & 0xFF
+            vm_id = (wb ^ es ^ db) & 1
+        self._prng  = ((self._prng * 0x6C622) + 0x14057) & _M32
         self._cycle += 1
         return vm_id
 
@@ -333,6 +354,13 @@ class _VM3:
                     _sag_fn = lambda: globals().get('__sag_state', 0)
                     _mcp_fn = lambda: globals().get('__MCP_SEED', 0)
                     _res = _vm4_apply(_res, _vm_state, _sag_fn, _mcp_fn)
+                except Exception:
+                    pass
+                # Stage 9.5: Parallel Dual-Engine combine
+                try:
+                    _rust_s = globals().get('__pe_rust_state', self.r2.state)
+                    _rs = _rust_s if isinstance(_rust_s, int) else self.r2.state
+                    _res = _pe_apply(_res, _vm_state, _rs & 0xFFFFFFFF)
                 except Exception:
                     pass
                 return _res
@@ -631,6 +659,9 @@ class _VM3:
     def _emit_vm4_runtime(self, ir_module) -> str:
         fg = self._vm4.build_fragment_graph(ir_module)
         return self._vm4.emit_all_runtime(fg)
+
+    def _emit_parallel_runtime(self) -> str:
+        return _PEEmitter.emit_runtime()
 
     def _emit_bootstrap(self, bc: VM3Bytecode, ic_seed: int = 0) -> str:
         # Split keys into XOR parts so they don't appear as single literals
