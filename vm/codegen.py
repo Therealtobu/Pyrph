@@ -406,22 +406,34 @@ class _VM3:
     # ── Register helpers (use _SS split-state) ────────────────────────────────
     def _g1(self, k):
         if k is None: return None
-        if isinstance(k, int): return self.R1.read_any(k & 0xF)
+        if isinstance(k, int):
+            i = k & 0xF
+            v = self.R1.read_any(i)
+            return self.R2.read_any(i) if v is None else v
         return self.env.get(str(k))
     def _s1(self, k, v):
         if k is None: return
-        if isinstance(k, int): self.R1.write(k & 0xF, v)
+        if isinstance(k, int):
+            i = k & 0xF
+            self.R1.write(i, v)
+            self.R2.write(i, v)
         else:
             self.env[str(k)] = v
             if hasattr(self, "__sag_tick"): pass  # SAG tick handled separately
 
     def _g2(self, k):
         if k is None: return None
-        if isinstance(k, int): return self.R2.read_any(k & 0xF)
+        if isinstance(k, int):
+            i = k & 0xF
+            v = self.R2.read_any(i)
+            return self.R1.read_any(i) if v is None else v
         return self.env.get(str(k))
     def _s2(self, k, v):
         if k is None: return
-        if isinstance(k, int): self.R2.write(k & 0xF, v)
+        if isinstance(k, int):
+            i = k & 0xF
+            self.R2.write(i, v)
+            self.R1.write(i, v)
         else: self.env[str(k)] = v
 
     def _genv(self, k): return self.env.get(str(k))
