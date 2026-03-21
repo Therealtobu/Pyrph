@@ -170,12 +170,18 @@ class Interleaver:
         ops_b = self._operands_partial(ir, side="B", tmp=tmp)
 
         src0 = ir.src[0]
-        src1 = ir.src[1] if len(ir.src) > 1 else ir.src[0]
-        load_a = self._emit_operand(src0, side="A")
-        # Validate right-hand operand kind for split path (fail-fast).
-        self._emit_operand(src1, side="B")
+        vm1_load_map = {
+            "const": VM1Op.RLOAD_CONST,
+            "var":   VM1Op.RLOAD_VAR,
+            "reg":   VM1Op.RLOAD_VAR,
+        }
+        if src0.kind not in vm1_load_map:
+            raise RuntimeError(
+                f"Unsupported split source kind in Interleaver: {src0.kind}"
+            )
+        vm1_load_op = vm1_load_map[src0.kind]
 
-        enc_a = res1.encode(int(load_a))
+        enc_a = res1.encode(int(vm1_load_op))
         enc_b = res2.encode(int(vm2op))
 
         part_a = VM3Instr(
@@ -184,7 +190,7 @@ class Interleaver:
             operands   = ops_a,
             is_split_a = True,
             split_tmp  = tmp,
-            raw_op     = int(load_a),
+            raw_op     = int(vm1_load_op),
             block_key  = block_key,
         )
         part_b = VM3Instr(
