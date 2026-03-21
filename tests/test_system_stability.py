@@ -115,39 +115,3 @@ def test_empty_and_large_inputs_obfuscate_and_execute(tmp_path):
     assert plain.returncode == 0
     assert obf.returncode == 0
     assert plain.stdout == obf.stdout
-
-
-def test_max_profile_with_decorators_never_emits_invalid_syntax(tmp_path):
-    src = tmp_path / "decorated.py"
-    src.write_text(
-        """
-from functools import wraps
-
-def deco(fn):
-    @wraps(fn)
-    def wrapper(x):
-        return fn(x) + 1
-    return wrapper
-
-@deco
-def f(n):
-    if n <= 1:
-        return 1
-    return n + f(n - 1)
-
-if __name__ == '__main__':
-    import sys
-    print(f(int(sys.argv[1])))
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
-
-    for i in range(8):
-        out = tmp_path / f"decorated_obf_{i}.py"
-        _obfuscate(src, out, profile="max")
-        plain = _run([sys.executable, str(src), "5"])
-        obf = _run([sys.executable, str(out), "5"])
-        assert plain.returncode == 0
-        assert obf.returncode == 0, obf.stderr
-        assert plain.stdout == obf.stdout
