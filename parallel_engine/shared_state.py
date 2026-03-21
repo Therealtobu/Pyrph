@@ -80,13 +80,52 @@ class SharedState:
 
     def restore(self, snap: dict):
         with self._lock:
-            self.vm3_state       = snap['vm3_state']
-            self.rust_state      = snap['rust_state']
-            self.cross_key       = snap['cross_key']
-            self.last_vm3_out    = snap['last_vm3_out']
-            self.last_rust_out   = snap['last_rust_out']
-            self.instr_counter   = snap['counter']
-            self._interleave_idx = snap['interleave']
+            if not isinstance(snap, dict):
+                raise TypeError("SharedState.restore requires dict snapshot")
+
+            required = {
+                "vm3_state", "rust_state", "cross_key",
+                "last_vm3_out", "last_rust_out", "counter", "interleave",
+            }
+            missing = required.difference(snap)
+            if missing:
+                raise KeyError(f"SharedState.restore missing keys: {sorted(missing)}")
+
+            def _strict_int(name: str) -> int:
+                value = snap[name]
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise ValueError(f"SharedState.restore invalid {name}: {value!r}")
+                return value & _MASK32
+
+            vm3_state = _strict_int("vm3_state")
+            rust_state = _strict_int("rust_state")
+            cross_key = _strict_int("cross_key")
+            last_vm3_out = _strict_int("last_vm3_out")
+            last_rust_out = _strict_int("last_rust_out")
+            counter = _strict_int("counter")
+            interleave = _strict_int("interleave")
+            if interleave not in (0, 1):
+                raise ValueError(f"SharedState.restore invalid interleave: {interleave}")
+
+            expected_ck = int.from_bytes(
+                hashlib.blake2s(
+                    ((vm3_state ^ rust_state) & _MASK32).to_bytes(4, "little"),
+                    digest_size=4,
+                ).digest(),
+                "little",
+            ) & _MASK32
+            if cross_key != expected_ck:
+                raise RuntimeError(
+                    "SharedState.restore cross_key mismatch: snapshot corrupted"
+                )
+
+            self.vm3_state = vm3_state
+            self.rust_state = rust_state
+            self.cross_key = cross_key
+            self.last_vm3_out = last_vm3_out
+            self.last_rust_out = last_rust_out
+            self.instr_counter = counter
+            self._interleave_idx = interleave
 
     # ── Interleave control ────────────────────────────────────────────────────
     def whose_turn(self) -> int:
