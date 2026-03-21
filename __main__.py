@@ -7,6 +7,7 @@ import sys
 import os
 import ast
 import time
+from importlib import import_module
 from pathlib import Path
 
 
@@ -77,6 +78,11 @@ def _prompt_file() -> str:
     return path
 
 
+def _import_attr(module_path: str, attr: str):
+    mod = import_module(f"pyrph.{module_path}")
+    return getattr(mod, attr)
+
+
 def _run_obf(filepath: str, tier: str, key: str):
     src_path = Path(filepath)
 
@@ -110,7 +116,7 @@ def _run_obf(filepath: str, tier: str, key: str):
     print(f"  {DIM}Building pipeline [{profile}]...{R}\n")
 
     try:
-        from pyrph.phases.unified import build_pipeline
+        build_pipeline = _import_attr("phases.unified", "build_pipeline")
         p       = build_pipeline(profile=profile, **opts)
         t0      = time.time()
         results = p.run(source)
@@ -147,7 +153,7 @@ def _run_obf(filepath: str, tier: str, key: str):
     # Mark free key as used (one-shot)
     if tier == "free":
         try:
-            from pyrph.key.client import mark_used
+            mark_used = _import_attr("key.client", "mark_used")
             mark_used(key)
             print(f"  {YL}⚠ Free key expired. Get a new one at pyrph.vercel.app/getkey{R}\n")
         except Exception:
@@ -169,7 +175,7 @@ def main():
             sys.exit(1)
 
         print(f"  {DIM}Activating key...{R}")
-        from pyrph.key.client import activate
+        activate = _import_attr("key.client", "activate")
         result = activate(key)
         if result.get("ok"):
             tier = result.get("tier", "free")
@@ -184,8 +190,8 @@ def main():
 
     # ── --getkey ──────────────────────────────────────────────────────────
     if "--getkey" in args:
-        from pyrph.key.hwid import get_hwid
-        from pyrph.key.client import getkey_request
+        get_hwid = _import_attr("key.hwid", "get_hwid")
+        getkey_request = _import_attr("key.client", "getkey_request")
         hwid = get_hwid()
         print(f"  {DIM}Requesting free key for HWID: {hwid[:16]}...{R}")
         result = getkey_request(hwid)
@@ -201,14 +207,15 @@ def main():
 
     # ── --logout ──────────────────────────────────────────────────────────
     if "--logout" in args:
-        from pyrph.key.client import delete_key
+        delete_key = _import_attr("key.client", "delete_key")
         delete_key()
         print(f"  {GR}✓ Key removed.{R}")
         sys.exit(0)
 
     # ── Main flow ─────────────────────────────────────────────────────────
-    from pyrph.key.hwid    import get_hwid
-    from pyrph.key.client  import verify, load_key
+    get_hwid = _import_attr("key.hwid", "get_hwid")
+    verify = _import_attr("key.client", "verify")
+    load_key = _import_attr("key.client", "load_key")
 
     hwid = get_hwid()
     key  = load_key() or os.environ.get("PYRPH_KEY")
@@ -228,7 +235,7 @@ def main():
             print(f"  {YL}⚠ Offline — using cached license.{R}")
         elif err in ("expired", "Key expired."):
             print(f"  {RD}✗ Key expired.{R}")
-            from pyrph.key.client import delete_key
+            delete_key = _import_attr("key.client", "delete_key")
             delete_key()
             _print_hwid_screen(hwid)
             sys.exit(1)

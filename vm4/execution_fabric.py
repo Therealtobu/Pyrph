@@ -75,6 +75,8 @@ def _ef_pick(pool_size: int, state_hash: int,
     Result depends on: state + DNA + time + history.
     No static prediction possible.
     """
+    if pool_size <= 0:
+        return 0
     tj  = _ef_time_jitter()
     raw = (state_hash * _EF_MUL) ^ dna_partial ^ hist_hash ^ tj ^ cycle
     return raw % pool_size
@@ -113,7 +115,9 @@ def _ef_hist_hash(hist: list) -> int:
 
 def _ef_converged(done_real: set, all_real: list, hist: list) -> bool:
     """True when all REAL fragments have executed at least once."""
-    return all_real and done_real.issuperset(all_real)
+    if not all_real:
+        return True
+    return done_real.issuperset(all_real)
 
 
 def _ef_run(pool: list, real_ids: list,
@@ -125,6 +129,9 @@ def _ef_run(pool: list, real_ids: list,
 
     Returns (final_sm_state, dna_partial, execution_history)
     """
+    if not pool or max_cycles <= 0:
+        return sm_state, dna_partial_init, []
+
     hist         = []
     done_real    = set()
     skip_counts  = {}

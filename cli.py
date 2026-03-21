@@ -14,9 +14,18 @@ import sys
 import argparse
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+ROOT = Path(__file__).parent
+sys.path.insert(0, str(ROOT))
 
-from pyrph.phases.unified import build_pipeline
+try:
+    from pyrph.phases.unified import build_pipeline
+except ModuleNotFoundError as exc:
+    if exc.name == "pyrph":
+        raise ModuleNotFoundError(
+            "Missing 'pyrph' package. Ensure repository root is on PYTHONPATH."
+        ) from exc
+    else:
+        raise
 
 
 def _banner():
