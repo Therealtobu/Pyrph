@@ -7,6 +7,7 @@ import sys
 import os
 import ast
 import time
+import types
 from importlib import import_module
 from pathlib import Path
 
@@ -79,7 +80,17 @@ def _prompt_file() -> str:
 
 
 def _import_attr(module_path: str, attr: str):
-    mod = import_module(f"pyrph.{module_path}")
+    if "pyrph" not in sys.modules:
+        pkg = types.ModuleType("pyrph")
+        pkg.__path__ = [str(Path(__file__).parent)]
+        sys.modules["pyrph"] = pkg
+    try:
+        mod = import_module(f"pyrph.{module_path}")
+    except ModuleNotFoundError as exc:
+        if exc.name == "pyrph":
+            mod = import_module(f"pyrph.{module_path}")
+        else:
+            raise
     return getattr(mod, attr)
 
 

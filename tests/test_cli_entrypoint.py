@@ -71,3 +71,108 @@ if __name__ == '__main__':
     )
     assert run.returncode == 0, run.stderr or run.stdout
     assert "RESULT 42" in run.stdout
+
+
+def test_cli_handles_empty_input_and_multi_run_stability(tmp_path):
+    sample = tmp_path / "empty.py"
+    sample.write_text("", encoding="utf-8")
+    out_file = tmp_path / "empty_obf.py"
+
+    obf = subprocess.run(
+        [
+            sys.executable,
+            "cli.py",
+            str(sample),
+            "-o",
+            str(out_file),
+            "--profile",
+            "vm_max",
+            "--no-banner",
+            "-q",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert obf.returncode == 0, obf.stderr or obf.stdout
+
+    for _ in range(6):
+        run = subprocess.run(
+            [sys.executable, str(out_file)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert run.returncode == 0, run.stderr or run.stdout
+        assert run.stdout == ""
+
+
+def test_cli_large_nonstandard_program_correctness(tmp_path):
+    sample = tmp_path / "complex.py"
+    numbers = ",".join(str(i) for i in range(1500))
+    sample.write_text(
+        f"""
+def deco(fn):
+    return lambda *a, **k: fn(*a, **k)
+
+@deco
+def crunch(xs):
+    total = 0
+    for i, x in enumerate(xs):
+        total += (x * i) if (x % 7) else -(x // 2)
+    return total
+
+def deep(n):
+    if n <= 1:
+        return 1
+    return n * deep(n - 1)
+
+def main():
+    data = [{numbers}]
+    chk = crunch(data)
+    val = deep(9) % 997
+    text = 'ok' if (p := chk ^ val) else 'zero'
+    print(text, p, len(data))
+
+if __name__ == "__main__":
+    main()
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    out_file = tmp_path / "complex_obf.py"
+    baseline = subprocess.run(
+        [sys.executable, str(sample)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert baseline.returncode == 0, baseline.stderr or baseline.stdout
+
+    obf = subprocess.run(
+        [
+            sys.executable,
+            "cli.py",
+            str(sample),
+            "-o",
+            str(out_file),
+            "--profile",
+            "balanced",
+            "--no-banner",
+            "-q",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert obf.returncode == 0, obf.stderr or obf.stdout
+
+    for _ in range(4):
+        run = subprocess.run(
+            [sys.executable, str(out_file)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert run.returncode == 0, run.stderr or run.stdout
+        assert run.stdout == baseline.stdout
