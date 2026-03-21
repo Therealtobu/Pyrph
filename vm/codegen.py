@@ -45,6 +45,7 @@ class VMCodeGen:
         self._vm4    = _VM4Engine()
 
     def generate(self, bc: VM3Bytecode, ir_module=None) -> str:
+        self._validate_bytecode(bc)
         # Build integrity chain before serialising instructions
         ic_builder = IntegrityChainBuilder()
         bc.instructions, ic_seed = ic_builder.build(bc.instructions)
@@ -55,17 +56,46 @@ class VMCodeGen:
 
         parts = [self._header()]
         parts.append(self._emit_tables(bc, frags, fidx))
-        parts.append(self._emit_string_frags(frags or [], fidx or {}))
         parts.append(self._emit_instructions(bc, ic_seed))
         parts.append(self._emit_runtime())
         parts.append(self._emit_security_modules())
+        parts.append(self._emit_string_frags(frags or [], fidx or {}))
         sag_rt = self._emit_sag_runtime(ir_module)
         if sag_rt: parts.append(sag_rt)
         parts.append(self._emit_postvm_runtime(ir_module))
         parts.append(self._emit_vm4_runtime(ir_module))
         parts.append(self._emit_parallel_runtime())
         parts.append(self._emit_bootstrap(bc, ic_seed))
-        return "\n\n".join(parts)
+        code = "\n\n".join(parts)
+        self._validate_runtime_order(code)
+        return code
+
+    def _validate_bytecode(self, bc: VM3Bytecode):
+        if bc is None:
+            raise RuntimeError("VMCodeGen.generate requires VM3Bytecode, got None")
+        required = ("instructions", "const_table", "string_table", "label_map")
+        for attr in required:
+            if not hasattr(bc, attr):
+                raise RuntimeError(f"VMCodeGen.generate missing bytecode attribute: {attr}")
+        if not isinstance(bc.instructions, list):
+            raise RuntimeError("VMCodeGen.generate invalid instructions: expected list")
+        if not isinstance(bc.const_table, dict):
+            raise RuntimeError("VMCodeGen.generate invalid const_table: expected dict")
+        if not isinstance(bc.string_table, dict):
+            raise RuntimeError("VMCodeGen.generate invalid string_table: expected dict")
+        if not isinstance(bc.label_map, dict):
+            raise RuntimeError("VMCodeGen.generate invalid label_map: expected dict")
+
+    @staticmethod
+    def _validate_runtime_order(code: str):
+        cls_pos = code.find("class _SR:")
+        inst_pos = code.find("__SR       = _SR(")
+        if inst_pos == -1:
+            inst_pos = code.find("__SR = _SR(")
+        if inst_pos != -1 and cls_pos == -1:
+            raise RuntimeError("Generated VM runtime missing _SR definition")
+        if cls_pos != -1 and inst_pos != -1 and inst_pos < cls_pos:
+            raise RuntimeError("Invalid VM emission order: __SR initialized before class _SR")
 
     # ── Header ────────────────────────────────────────────────────────────────
     def _header(self) -> str:
@@ -316,11 +346,18 @@ class _VM3:
                     self.r1.key = (self.r1.key ^ 0xBADC0FFE) & _M32
                     self.r2.key = (self.r2.key ^ 0xDEADC0DE) & _M32
 
-            # Runtime dynamic slot selection (overrides compile-time slot)
-            # Uses compile-time slot as tiebreak when scheduler agrees
-            rt_slot = self._sched_pick(data=self.r1.last_output ^ self.r2.last_output)
-            # Blend: if compile-time and runtime agree → use it; else XOR
-            effective_slot = (v ^ rt_slot ^ (self.r1.state & 1)) & 1
+            if a:
+                # Split part-A must execute on VM1 to materialize bridge temp.
+                effective_slot = 0
+            elif b:
+                # Split part-B must execute on VM2 to consume bridge temp.
+                effective_slot = 1
+            else:
+                # Runtime dynamic slot selection (overrides compile-time slot)
+                # Uses compile-time slot as tiebreak when scheduler agrees
+                rt_slot = self._sched_pick(data=self.r1.last_output ^ self.r2.last_output)
+                # Blend: if compile-time and runtime agree → use it; else XOR
+                effective_slot = (v ^ rt_slot ^ (self.r1.state & 1)) & 1
 
             if effective_slot == 0:
                 op = self.r1.resolve(enc)
@@ -369,22 +406,34 @@ class _VM3:
     # ── Register helpers (use _SS split-state) ────────────────────────────────
     def _g1(self, k):
         if k is None: return None
-        if isinstance(k, int): return self.R1.read_any(k & 0xF)
+        if isinstance(k, int):
+            i = k & 0xF
+            v = self.R1.read_any(i)
+            return self.R2.read_any(i) if v is None else v
         return self.env.get(str(k))
     def _s1(self, k, v):
         if k is None: return
-        if isinstance(k, int): self.R1.write(k & 0xF, v)
+        if isinstance(k, int):
+            i = k & 0xF
+            self.R1.write(i, v)
+            self.R2.write(i, v)
         else:
             self.env[str(k)] = v
             if hasattr(self, "__sag_tick"): pass  # SAG tick handled separately
 
     def _g2(self, k):
         if k is None: return None
-        if isinstance(k, int): return self.R2.read_any(k & 0xF)
+        if isinstance(k, int):
+            i = k & 0xF
+            v = self.R2.read_any(i)
+            return self.R1.read_any(i) if v is None else v
         return self.env.get(str(k))
     def _s2(self, k, v):
         if k is None: return
-        if isinstance(k, int): self.R2.write(k & 0xF, v)
+        if isinstance(k, int):
+            i = k & 0xF
+            self.R2.write(i, v)
+            self.R1.write(i, v)
         else: self.env[str(k)] = v
 
     def _genv(self, k): return self.env.get(str(k))
