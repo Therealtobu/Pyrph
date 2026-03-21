@@ -45,6 +45,7 @@ class VMCodeGen:
         self._vm4    = _VM4Engine()
 
     def generate(self, bc: VM3Bytecode, ir_module=None) -> str:
+        self._validate_bytecode(bc)
         # Build integrity chain before serialising instructions
         ic_builder = IntegrityChainBuilder()
         bc.instructions, ic_seed = ic_builder.build(bc.instructions)
@@ -55,17 +56,46 @@ class VMCodeGen:
 
         parts = [self._header()]
         parts.append(self._emit_tables(bc, frags, fidx))
-        parts.append(self._emit_string_frags(frags or [], fidx or {}))
         parts.append(self._emit_instructions(bc, ic_seed))
         parts.append(self._emit_runtime())
         parts.append(self._emit_security_modules())
+        parts.append(self._emit_string_frags(frags or [], fidx or {}))
         sag_rt = self._emit_sag_runtime(ir_module)
         if sag_rt: parts.append(sag_rt)
         parts.append(self._emit_postvm_runtime(ir_module))
         parts.append(self._emit_vm4_runtime(ir_module))
         parts.append(self._emit_parallel_runtime())
         parts.append(self._emit_bootstrap(bc, ic_seed))
-        return "\n\n".join(parts)
+        code = "\n\n".join(parts)
+        self._validate_runtime_order(code)
+        return code
+
+    def _validate_bytecode(self, bc: VM3Bytecode):
+        if bc is None:
+            raise RuntimeError("VMCodeGen.generate requires VM3Bytecode, got None")
+        required = ("instructions", "const_table", "string_table", "label_map")
+        for attr in required:
+            if not hasattr(bc, attr):
+                raise RuntimeError(f"VMCodeGen.generate missing bytecode attribute: {attr}")
+        if not isinstance(bc.instructions, list):
+            raise RuntimeError("VMCodeGen.generate invalid instructions: expected list")
+        if not isinstance(bc.const_table, dict):
+            raise RuntimeError("VMCodeGen.generate invalid const_table: expected dict")
+        if not isinstance(bc.string_table, dict):
+            raise RuntimeError("VMCodeGen.generate invalid string_table: expected dict")
+        if not isinstance(bc.label_map, dict):
+            raise RuntimeError("VMCodeGen.generate invalid label_map: expected dict")
+
+    @staticmethod
+    def _validate_runtime_order(code: str):
+        cls_pos = code.find("class _SR:")
+        inst_pos = code.find("__SR       = _SR(")
+        if inst_pos == -1:
+            inst_pos = code.find("__SR = _SR(")
+        if inst_pos != -1 and cls_pos == -1:
+            raise RuntimeError("Generated VM runtime missing _SR definition")
+        if cls_pos != -1 and inst_pos != -1 and inst_pos < cls_pos:
+            raise RuntimeError("Invalid VM emission order: __SR initialized before class _SR")
 
     # ── Header ────────────────────────────────────────────────────────────────
     def _header(self) -> str:
@@ -316,11 +346,18 @@ class _VM3:
                     self.r1.key = (self.r1.key ^ 0xBADC0FFE) & _M32
                     self.r2.key = (self.r2.key ^ 0xDEADC0DE) & _M32
 
-            # Runtime dynamic slot selection (overrides compile-time slot)
-            # Uses compile-time slot as tiebreak when scheduler agrees
-            rt_slot = self._sched_pick(data=self.r1.last_output ^ self.r2.last_output)
-            # Blend: if compile-time and runtime agree → use it; else XOR
-            effective_slot = (v ^ rt_slot ^ (self.r1.state & 1)) & 1
+            if a:
+                # Split part-A must execute on VM1 to materialize bridge temp.
+                effective_slot = 0
+            elif b:
+                # Split part-B must execute on VM2 to consume bridge temp.
+                effective_slot = 1
+            else:
+                # Runtime dynamic slot selection (overrides compile-time slot)
+                # Uses compile-time slot as tiebreak when scheduler agrees
+                rt_slot = self._sched_pick(data=self.r1.last_output ^ self.r2.last_output)
+                # Blend: if compile-time and runtime agree → use it; else XOR
+                effective_slot = (v ^ rt_slot ^ (self.r1.state & 1)) & 1
 
             if effective_slot == 0:
                 op = self.r1.resolve(enc)
@@ -369,22 +406,34 @@ class _VM3:
     # ── Register helpers (use _SS split-state) ────────────────────────────────
     def _g1(self, k):
         if k is None: return None
-        if isinstance(k, int): return self.R1.read_any(k & 0xF)
+        if isinstance(k, int):
+            i = k & 0xF
+            v = self.R1.read_any(i)
+            return self.R2.read_any(i) if v is None else v
         return self.env.get(str(k))
     def _s1(self, k, v):
         if k is None: return
-        if isinstance(k, int): self.R1.write(k & 0xF, v)
+        if isinstance(k, int):
+            i = k & 0xF
+            self.R1.write(i, v)
+            self.R2.write(i, v)
         else:
             self.env[str(k)] = v
             if hasattr(self, "__sag_tick"): pass  # SAG tick handled separately
 
     def _g2(self, k):
         if k is None: return None
-        if isinstance(k, int): return self.R2.read_any(k & 0xF)
+        if isinstance(k, int):
+            i = k & 0xF
+            v = self.R2.read_any(i)
+            return self.R1.read_any(i) if v is None else v
         return self.env.get(str(k))
     def _s2(self, k, v):
         if k is None: return
-        if isinstance(k, int): self.R2.write(k & 0xF, v)
+        if isinstance(k, int):
+            i = k & 0xF
+            self.R2.write(i, v)
+            self.R1.write(i, v)
         else: self.env[str(k)] = v
 
     def _genv(self, k): return self.env.get(str(k))
@@ -416,6 +465,13 @@ class _VM3:
             return _VM3._dec_op(v, enc, bk, i)
         return None
     @staticmethod
+    def _src_typed(ops, n, enc=0, bk=0):
+        srcs = [(i,tp,v) for i,(t,tp,v) in enumerate(ops) if t=="src"]
+        if n < len(srcs):
+            i, tp, v = srcs[n]
+            return tp, _VM3._dec_op(v, enc, bk, i)
+        return None, None
+    @staticmethod
     def _lbl(ops, enc=0, bk=0):
         for i,(t,tp,v) in enumerate(ops):
             if t=="lbl":
@@ -429,7 +485,7 @@ class _VM3:
         return None
 
     def _v1(self, o, ops, lbl, a, b, tmp, _enc=0, _bk=0):
-        d=self._dst(ops,_enc,_bk); s=lambda n:self._src(ops,n,_enc,_bk); lb=self._lbl(ops,_enc,_bk)
+        d=self._dst(ops,_enc,_bk); s=lambda n:self._src(ops,n,_enc,_bk); lb=self._lbl(ops,_enc,_bk); rv=lambda n:self._read1(ops,n,_enc,_bk)
         if a:
             self.env[str(tmp)] = self._resolve_val(s(0)); return
         if o==0x00: return
@@ -453,40 +509,40 @@ class _VM3:
             try: setattr(self._g1(s(0)), str(s(1)), self._g1(d))
             except: pass
             return
-        if o==0x1A: self._s1(d, self._g1(s(0))+self._g1(s(1))); return
-        if o==0x1C: self._s1(d, self._g1(s(0))-self._g1(s(1))); return
-        if o==0x1E: self._s1(d, self._g1(s(0))*self._g1(s(1))); return
+        if o==0x1A: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)+rv(1)); return
+        if o==0x1C: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)-rv(1)); return
+        if o==0x1E: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)*rv(1)); return
         if o==0x20:
-            _b=self._g1(s(1))
-            self._s1(d, self._g1(s(0))/_b if _b else 0); return
+            _a=rv(0); _b=rv(1); self._guard_binary_operands(o, _a, _b)
+            self._s1(d, _a/_b if _b else 0); return
         if o==0x22:
-            _b=self._g1(s(1))
-            self._s1(d, self._g1(s(0))//_b if _b else 0); return
+            _a=rv(0); _b=rv(1); self._guard_binary_operands(o, _a, _b)
+            self._s1(d, _a//_b if _b else 0); return
         if o==0x24:
-            _b=self._g1(s(1))
-            self._s1(d, self._g1(s(0))%_b if _b else 0); return
+            _a=rv(0); _b=rv(1); self._guard_binary_operands(o, _a, _b)
+            self._s1(d, _a%_b if _b else 0); return
         if o==0x26:
             try: self._s1(d, self._g1(s(0))**self._g1(s(1)))
             except: self._s1(d, 0)
             return
         if o==0x28: self._s1(d, -self._g1(s(0))); return
-        if o==0x2A: self._s1(d, self._g1(s(0))&self._g1(s(1))); return
-        if o==0x2C: self._s1(d, self._g1(s(0))|self._g1(s(1))); return
-        if o==0x2E: self._s1(d, self._g1(s(0))^self._g1(s(1))); return
+        if o==0x2A: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)&rv(1)); return
+        if o==0x2C: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)|rv(1)); return
+        if o==0x2E: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)^rv(1)); return
         if o==0x30: self._s1(d, ~self._g1(s(0))); return
-        if o==0x32: self._s1(d, self._g1(s(0))<<self._g1(s(1))); return
-        if o==0x34: self._s1(d, self._g1(s(0))>>self._g1(s(1))); return
-        if o==0x36: self._s1(d, self._g1(s(0)) and self._g1(s(1))); return
-        if o==0x38: self._s1(d, self._g1(s(0)) or  self._g1(s(1))); return
+        if o==0x32: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)<<rv(1)); return
+        if o==0x34: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)>>rv(1)); return
+        if o==0x36: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0) and rv(1)); return
+        if o==0x38: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0) or  rv(1)); return
         if o==0x3A: self._s1(d, not self._g1(s(0))); return
-        if o==0x3C: self._s1(d, self._g1(s(0))==self._g1(s(1))); return
-        if o==0x3E: self._s1(d, self._g1(s(0))!=self._g1(s(1))); return
-        if o==0x40: self._s1(d, self._g1(s(0))< self._g1(s(1))); return
-        if o==0x42: self._s1(d, self._g1(s(0))<=self._g1(s(1))); return
-        if o==0x44: self._s1(d, self._g1(s(0))> self._g1(s(1))); return
-        if o==0x46: self._s1(d, self._g1(s(0))>=self._g1(s(1))); return
-        if o==0x48: self._s1(d, self._g1(s(0)) is self._g1(s(1))); return
-        if o==0x4A: self._s1(d, self._g1(s(0)) in self._g1(s(1))); return
+        if o==0x3C: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)==rv(1)); return
+        if o==0x3E: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)!=rv(1)); return
+        if o==0x40: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)< rv(1)); return
+        if o==0x42: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)<=rv(1)); return
+        if o==0x44: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)> rv(1)); return
+        if o==0x46: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0)>=rv(1)); return
+        if o==0x48: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0) is rv(1)); return
+        if o==0x4A: self._guard_binary_operands(o, rv(0), rv(1)); self._s1(d, rv(0) in rv(1)); return
         if o==0x4C:
             if lb and lb in self.L: self.pc=self.L[lb]
             return
@@ -525,10 +581,11 @@ class _VM3:
             return
 
     def _v2(self, o, ops, lbl, a, b, tmp, _enc=0, _bk=0):
-        d=self._dst(ops,_enc,_bk); s=lambda n:self._src(ops,n,_enc,_bk); lb=self._lbl(ops,_enc,_bk)
+        d=self._dst(ops,_enc,_bk); s=lambda n:self._src(ops,n,_enc,_bk); lb=self._lbl(ops,_enc,_bk); rv=lambda n:self._read2(ops,n,_enc,_bk)
         if b:
-            left  = self.env.get(str(tmp))
-            right = self._resolve_val(s(1))
+            left  = rv(0)
+            right = rv(1)
+            self._guard_binary_operands(o, left, right)
             self._s2(d, self._apply_v2_op(o, left, right)); return
         if o==0x01: return
         if o==0x03: self.ret=self._g2(0); return
@@ -539,38 +596,38 @@ class _VM3:
             try: self._s2(s(2), self._g2(s(0))[self._g2(s(1))])
             except: pass
             return
-        if o==0x1B: self._s2(s(2), self._g2(s(0))+self._g2(s(1))); return
-        if o==0x1D: self._s2(s(2), self._g2(s(0))-self._g2(s(1))); return
-        if o==0x1F: self._s2(s(2), self._g2(s(0))*self._g2(s(1))); return
+        if o==0x1B: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)+rv(1)); return
+        if o==0x1D: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)-rv(1)); return
+        if o==0x1F: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)*rv(1)); return
         if o==0x21:
-            _b=self._g2(s(1))
-            self._s2(s(2), self._g2(s(0))/_b if _b else 0); return
+            _a=rv(0); _b=rv(1); self._guard_binary_operands(o, _a, _b)
+            self._s2(s(2), _a/_b if _b else 0); return
         if o==0x23:
-            _b=self._g2(s(1))
-            self._s2(s(2), self._g2(s(0))//_b if _b else 0); return
+            _a=rv(0); _b=rv(1); self._guard_binary_operands(o, _a, _b)
+            self._s2(s(2), _a//_b if _b else 0); return
         if o==0x25:
-            _b=self._g2(s(1))
-            self._s2(s(2), self._g2(s(0))%_b if _b else 0); return
+            _a=rv(0); _b=rv(1); self._guard_binary_operands(o, _a, _b)
+            self._s2(s(2), _a%_b if _b else 0); return
         if o==0x27:
             try: self._s2(s(2), self._g2(s(0))**self._g2(s(1)))
             except: self._s2(s(2), 0)
             return
         if o==0x29: self._s2(s(1), -self._g2(s(0))); return
-        if o==0x2B: self._s2(s(2), self._g2(s(0))&self._g2(s(1))); return
-        if o==0x2D: self._s2(s(2), self._g2(s(0))|self._g2(s(1))); return
-        if o==0x2F: self._s2(s(2), self._g2(s(0))^self._g2(s(1))); return
+        if o==0x2B: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)&rv(1)); return
+        if o==0x2D: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)|rv(1)); return
+        if o==0x2F: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)^rv(1)); return
         if o==0x31: self._s2(s(1), ~self._g2(s(0))); return
-        if o==0x33: self._s2(s(2), self._g2(s(0))<<self._g2(s(1))); return
-        if o==0x35: self._s2(s(2), self._g2(s(0))>>self._g2(s(1))); return
-        if o==0x37: self._s2(s(2), self._g2(s(0)) and self._g2(s(1))); return
-        if o==0x39: self._s2(s(2), self._g2(s(0)) or  self._g2(s(1))); return
+        if o==0x33: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)<<rv(1)); return
+        if o==0x35: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)>>rv(1)); return
+        if o==0x37: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0) and rv(1)); return
+        if o==0x39: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0) or  rv(1)); return
         if o==0x3B: self._s2(s(1), not self._g2(s(0))); return
-        if o==0x3D: self._s2(s(2), self._g2(s(0))==self._g2(s(1))); return
-        if o==0x3F: self._s2(s(2), self._g2(s(0))!=self._g2(s(1))); return
-        if o==0x41: self._s2(s(2), self._g2(s(0))< self._g2(s(1))); return
-        if o==0x43: self._s2(s(2), self._g2(s(0))<=self._g2(s(1))); return
-        if o==0x45: self._s2(s(2), self._g2(s(0))> self._g2(s(1))); return
-        if o==0x47: self._s2(s(2), self._g2(s(0))>=self._g2(s(1))); return
+        if o==0x3D: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)==rv(1)); return
+        if o==0x3F: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)!=rv(1)); return
+        if o==0x41: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)< rv(1)); return
+        if o==0x43: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)<=rv(1)); return
+        if o==0x45: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)> rv(1)); return
+        if o==0x47: self._guard_binary_operands(o, rv(0), rv(1)); self._s2(s(2), rv(0)>=rv(1)); return
         if o==0x4D:
             if lb and lb in self.L: self.pc=self.L[lb]
             return
@@ -609,29 +666,49 @@ class _VM3:
             return self.env.get(v)
         return v
 
+    def _read1(self, ops, n, enc=0, bk=0):
+        tp, v = self._src_typed(ops, n, enc, bk)
+        if tp in ("const", "const_ref", "str_ref"):
+            return self.C.get(v) if hasattr(self.C, "get") else self.C[v]
+        if tp in ("var", "reg"):
+            return self._g1(v)
+        return self._resolve_val(v)
+
+    def _read2(self, ops, n, enc=0, bk=0):
+        tp, v = self._src_typed(ops, n, enc, bk)
+        if tp in ("const", "const_ref", "str_ref"):
+            return self.C.get(v) if hasattr(self.C, "get") else self.C[v]
+        if tp in ("var", "reg"):
+            return self._g2(v)
+        return self._resolve_val(v)
+
+    @staticmethod
+    def _guard_binary_operands(op, a, b):
+        if a is None or b is None:
+            raise RuntimeError(f"Operand resolution failure: op={op}, a={a}, b={b}")
+
     @staticmethod
     def _apply_v2_op(o, left, right):
-        try:
-            if o==0x1B: return left+right
-            if o==0x1D: return left-right
-            if o==0x1F: return left*right
-            if o==0x21: return left/right if right else 0
-            if o==0x23: return left//right if right else 0
-            if o==0x25: return left%right if right else 0
-            if o==0x27: return left**right
-            if o==0x2B: return left&right
-            if o==0x2D: return left|right
-            if o==0x2F: return left^right
-            if o==0x33: return left<<right
-            if o==0x35: return left>>right
-            if o==0x3D: return left==right
-            if o==0x3F: return left!=right
-            if o==0x41: return left<right
-            if o==0x43: return left<=right
-            if o==0x45: return left>right
-            if o==0x47: return left>=right
-        except: pass
-        return None
+        _VM3._guard_binary_operands(o, left, right)
+        if o==0x1B: return left+right
+        if o==0x1D: return left-right
+        if o==0x1F: return left*right
+        if o==0x21: return left/right if right else 0
+        if o==0x23: return left//right if right else 0
+        if o==0x25: return left%right if right else 0
+        if o==0x27: return left**right
+        if o==0x2B: return left&right
+        if o==0x2D: return left|right
+        if o==0x2F: return left^right
+        if o==0x33: return left<<right
+        if o==0x35: return left>>right
+        if o==0x3D: return left==right
+        if o==0x3F: return left!=right
+        if o==0x41: return left<right
+        if o==0x43: return left<=right
+        if o==0x45: return left>right
+        if o==0x47: return left>=right
+        raise RuntimeError(f"Unsupported split binary opcode: 0x{o:02X}")
 '''
 
     def _emit_security_modules(self) -> str:
