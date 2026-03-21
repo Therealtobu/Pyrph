@@ -346,11 +346,18 @@ class _VM3:
                     self.r1.key = (self.r1.key ^ 0xBADC0FFE) & _M32
                     self.r2.key = (self.r2.key ^ 0xDEADC0DE) & _M32
 
-            # Runtime dynamic slot selection (overrides compile-time slot)
-            # Uses compile-time slot as tiebreak when scheduler agrees
-            rt_slot = self._sched_pick(data=self.r1.last_output ^ self.r2.last_output)
-            # Blend: if compile-time and runtime agree → use it; else XOR
-            effective_slot = (v ^ rt_slot ^ (self.r1.state & 1)) & 1
+            if a:
+                # Split part-A must execute on VM1 to materialize bridge temp.
+                effective_slot = 0
+            elif b:
+                # Split part-B must execute on VM2 to consume bridge temp.
+                effective_slot = 1
+            else:
+                # Runtime dynamic slot selection (overrides compile-time slot)
+                # Uses compile-time slot as tiebreak when scheduler agrees
+                rt_slot = self._sched_pick(data=self.r1.last_output ^ self.r2.last_output)
+                # Blend: if compile-time and runtime agree → use it; else XOR
+                effective_slot = (v ^ rt_slot ^ (self.r1.state & 1)) & 1
 
             if effective_slot == 0:
                 op = self.r1.resolve(enc)
