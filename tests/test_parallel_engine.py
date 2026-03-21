@@ -104,6 +104,21 @@ class TestSharedState(unittest.TestCase):
         s.restore(snap)
         self.assertEqual(s.vm3_state, 0xABCD)
 
+    def test_restore_tolerates_corrupted_snapshot(self):
+        s = self._make(0x1111, 0x2222)
+        snap = {"vm3_state": "bad", "rust_state": None, "counter": "9"}
+        s.restore(snap)
+        self.assertIsInstance(s.vm3_state, int)
+        self.assertIsInstance(s.rust_state, int)
+        self.assertEqual(s.instr_counter, 9)
+
+    def test_restore_non_dict_is_noop(self):
+        s = self._make(0x1111, 0x2222)
+        before = s.snapshot()
+        s.restore("invalid")
+        after = s.snapshot()
+        self.assertEqual(before, after)
+
     def test_combine_clean(self):
         s = self._make()
         vm3_r = 42
