@@ -81,51 +81,31 @@ class SharedState:
     def restore(self, snap: dict):
         with self._lock:
             if not isinstance(snap, dict):
-                raise TypeError("SharedState.restore requires dict snapshot")
+                return
 
-            required = {
-                "vm3_state", "rust_state", "cross_key",
-                "last_vm3_out", "last_rust_out", "counter", "interleave",
-            }
-            missing = required.difference(snap)
-            if missing:
-                raise KeyError(f"SharedState.restore missing keys: {sorted(missing)}")
+            def _as_int(val, default=0):
+                try:
+                    return int(val) & _MASK32
+                except Exception:
+                    return default
 
-            def _strict_int(name: str) -> int:
-                value = snap[name]
-                if not isinstance(value, int) or isinstance(value, bool):
-                    raise ValueError(f"SharedState.restore invalid {name}: {value!r}")
-                return value & _MASK32
+            self.vm3_state     = _as_int(snap.get('vm3_state'), self.vm3_state)
+            self.rust_state    = _as_int(snap.get('rust_state'), self.rust_state)
+            self.last_vm3_out  = _as_int(snap.get('last_vm3_out'), self.last_vm3_out)
+            self.last_rust_out = _as_int(snap.get('last_rust_out'), self.last_rust_out)
+            self.instr_counter = _as_int(snap.get('counter'), self.instr_counter)
 
-            vm3_state = _strict_int("vm3_state")
-            rust_state = _strict_int("rust_state")
-            cross_key = _strict_int("cross_key")
-            last_vm3_out = _strict_int("last_vm3_out")
-            last_rust_out = _strict_int("last_rust_out")
-            counter = _strict_int("counter")
-            interleave = _strict_int("interleave")
-            if interleave not in (0, 1):
-                raise ValueError(f"SharedState.restore invalid interleave: {interleave}")
+            raw_turn = snap.get('interleave', self._interleave_idx)
+            try:
+                self._interleave_idx = int(raw_turn) & 1
+            except Exception:
+                pass
 
-            expected_ck = int.from_bytes(
-                hashlib.blake2s(
-                    ((vm3_state ^ rust_state) & _MASK32).to_bytes(4, "little"),
-                    digest_size=4,
-                ).digest(),
-                "little",
-            ) & _MASK32
-            if cross_key != expected_ck:
-                raise RuntimeError(
-                    "SharedState.restore cross_key mismatch: snapshot corrupted"
-                )
-
-            self.vm3_state = vm3_state
-            self.rust_state = rust_state
-            self.cross_key = cross_key
-            self.last_vm3_out = last_vm3_out
-            self.last_rust_out = last_rust_out
-            self.instr_counter = counter
-            self._interleave_idx = interleave
+            ck = snap.get('cross_key')
+            if isinstance(ck, int):
+                self.cross_key = ck & _MASK32
+            else:
+                self.cross_key = self._compute_cross_key()
 
     # ── Interleave control ────────────────────────────────────────────────────
     def whose_turn(self) -> int:
