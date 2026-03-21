@@ -169,7 +169,13 @@ class Interleaver:
         ops_a = self._operands_partial(ir, side="A", tmp=tmp)
         ops_b = self._operands_partial(ir, side="B", tmp=tmp)
 
-        enc_a = res1.encode(int(VM1Op.RLOAD_VAR))
+        src0 = ir.src[0]
+        src1 = ir.src[1] if len(ir.src) > 1 else ir.src[0]
+        load_a = self._emit_operand(src0, side="A")
+        # Validate right-hand operand kind for split path (fail-fast).
+        self._emit_operand(src1, side="B")
+
+        enc_a = res1.encode(int(load_a))
         enc_b = res2.encode(int(vm2op))
 
         part_a = VM3Instr(
@@ -178,7 +184,7 @@ class Interleaver:
             operands   = ops_a,
             is_split_a = True,
             split_tmp  = tmp,
-            raw_op     = int(VM1Op.RLOAD_VAR),
+            raw_op     = int(load_a),
             block_key  = block_key,
         )
         part_b = VM3Instr(
@@ -192,6 +198,15 @@ class Interleaver:
             label      = ir.label,
         )
         return [part_a, part_b]
+
+    @staticmethod
+    def _emit_operand(op, side: str):
+        kind = getattr(op, "kind", None)
+        if kind in ("const", "const_ref", "str_ref"):
+            return VM1Op.RLOAD_CONST if side == "A" else VM2Op.WLOAD_K
+        if kind in ("var", "reg"):
+            return VM1Op.RLOAD_VAR if side == "A" else VM2Op.WLOAD_V
+        raise RuntimeError(f"Invalid operand kind for split binary op: {kind!r}")
 
     # ── Operand conversion ────────────────────────────────────────────────────
     @staticmethod
