@@ -55,10 +55,10 @@ class VMCodeGen:
 
         parts = [self._header()]
         parts.append(self._emit_tables(bc, frags, fidx))
-        parts.append(self._emit_string_frags(frags or [], fidx or {}))
         parts.append(self._emit_instructions(bc, ic_seed))
         parts.append(self._emit_runtime())
         parts.append(self._emit_security_modules())
+        parts.append(self._emit_string_frags(frags or [], fidx or {}))
         sag_rt = self._emit_sag_runtime(ir_module)
         if sag_rt: parts.append(sag_rt)
         parts.append(self._emit_postvm_runtime(ir_module))
