@@ -45,6 +45,7 @@ class VMCodeGen:
         self._vm4    = _VM4Engine()
 
     def generate(self, bc: VM3Bytecode, ir_module=None) -> str:
+        self._validate_bytecode(bc)
         # Build integrity chain before serialising instructions
         ic_builder = IntegrityChainBuilder()
         bc.instructions, ic_seed = ic_builder.build(bc.instructions)
@@ -57,15 +58,44 @@ class VMCodeGen:
         parts.append(self._emit_tables(bc, frags, fidx))
         parts.append(self._emit_instructions(bc, ic_seed))
         parts.append(self._emit_runtime())
-        parts.append(self._emit_string_frags(frags or [], fidx or {}))
         parts.append(self._emit_security_modules())
+        parts.append(self._emit_string_frags(frags or [], fidx or {}))
         sag_rt = self._emit_sag_runtime(ir_module)
         if sag_rt: parts.append(sag_rt)
         parts.append(self._emit_postvm_runtime(ir_module))
         parts.append(self._emit_vm4_runtime(ir_module))
         parts.append(self._emit_parallel_runtime())
         parts.append(self._emit_bootstrap(bc, ic_seed))
-        return "\n\n".join(parts)
+        code = "\n\n".join(parts)
+        self._validate_runtime_order(code)
+        return code
+
+    def _validate_bytecode(self, bc: VM3Bytecode):
+        if bc is None:
+            raise RuntimeError("VMCodeGen.generate requires VM3Bytecode, got None")
+        required = ("instructions", "const_table", "string_table", "label_map")
+        for attr in required:
+            if not hasattr(bc, attr):
+                raise RuntimeError(f"VMCodeGen.generate missing bytecode attribute: {attr}")
+        if not isinstance(bc.instructions, list):
+            raise RuntimeError("VMCodeGen.generate invalid instructions: expected list")
+        if not isinstance(bc.const_table, dict):
+            raise RuntimeError("VMCodeGen.generate invalid const_table: expected dict")
+        if not isinstance(bc.string_table, dict):
+            raise RuntimeError("VMCodeGen.generate invalid string_table: expected dict")
+        if not isinstance(bc.label_map, dict):
+            raise RuntimeError("VMCodeGen.generate invalid label_map: expected dict")
+
+    @staticmethod
+    def _validate_runtime_order(code: str):
+        cls_pos = code.find("class _SR:")
+        inst_pos = code.find("__SR       = _SR(")
+        if inst_pos == -1:
+            inst_pos = code.find("__SR = _SR(")
+        if inst_pos != -1 and cls_pos == -1:
+            raise RuntimeError("Generated VM runtime missing _SR definition")
+        if cls_pos != -1 and inst_pos != -1 and inst_pos < cls_pos:
+            raise RuntimeError("Invalid VM emission order: __SR initialized before class _SR")
 
     # ── Header ────────────────────────────────────────────────────────────────
     def _header(self) -> str:

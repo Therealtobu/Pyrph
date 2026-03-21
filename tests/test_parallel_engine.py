@@ -103,20 +103,23 @@ class TestSharedState(unittest.TestCase):
         s.restore(snap)
         self.assertEqual(s.vm3_state, 0xABCD)
 
-    def test_restore_tolerates_corrupted_snapshot(self):
+    def test_restore_rejects_corrupted_snapshot(self):
         s = self._make(0x1111, 0x2222)
         snap = {"vm3_state": "bad", "rust_state": None, "counter": "9"}
-        s.restore(snap)
-        self.assertIsInstance(s.vm3_state, int)
-        self.assertIsInstance(s.rust_state, int)
-        self.assertEqual(s.instr_counter, 9)
+        with self.assertRaises(KeyError):
+            s.restore(snap)
 
-    def test_restore_non_dict_is_noop(self):
+    def test_restore_non_dict_raises(self):
         s = self._make(0x1111, 0x2222)
-        before = s.snapshot()
-        s.restore("invalid")
-        after = s.snapshot()
-        self.assertEqual(before, after)
+        with self.assertRaises(TypeError):
+            s.restore("invalid")
+
+    def test_restore_rejects_cross_key_mismatch(self):
+        s = self._make(0x1111, 0x2222)
+        snap = s.snapshot()
+        snap["cross_key"] ^= 0x1234
+        with self.assertRaises(RuntimeError):
+            s.restore(snap)
 
     def test_combine_clean(self):
         s = self._make()
