@@ -59,12 +59,27 @@ class JunkPass(ObfPass):
                         return s.split()[0] if s.split() else ""
                 return ""
 
+            def _prev_nonempty_idx(idx):
+                for j in range(idx - 1, -1, -1):
+                    if lines[j].strip():
+                        return j
+                return -1
+
             safe_positions = [
                 i for i in top_level
                 # don't insert BEFORE a continuation line
                 if _line_first_word(i) not in _CONT
                 # don't insert before a line that is followed by a continuation
                 and _next_first_word(i) not in _CONT
+                # don't split decorator chains:
+                #   @dec
+                #   def f(...):
+                # inserting between these lines is invalid syntax.
+                and not lines[i].lstrip().startswith("@")
+                and (
+                    (p := _prev_nonempty_idx(i)) < 0
+                    or not lines[p].lstrip().startswith("@")
+                )
             ]
             if not safe_positions:
                 return self._ok(code, message="no safe positions for junk")
