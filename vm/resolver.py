@@ -67,13 +67,15 @@ class OpcodeResolver:
     def encode(self, real_op: int) -> int:
         """
         Produce enc such that resolve(enc) == real_op at the current state.
-        State is NOT advanced (encode is compile-time only).
+        State IS advanced (same as resolve) so sequential encode() calls stay
+        in sync with sequential resolve() calls at runtime.
         """
-        # resolve: op = ((enc ^ key) + state) ^ (state >> 3)
-        # → enc ^ key = (real_op ^ (state >> 3)) - state
         inner = (real_op ^ (self.state >> 3)) - self.state
         enc   = inner ^ self.key
-        return enc & _MASK32
+        enc  &= _MASK32
+        self.last_output = real_op   # needed so cross_update sees correct value
+        self._advance(real_op)       # keep state in sync with runtime resolve()
+        return enc
 
     # ── Cross-VM key update ───────────────────────────────────────────────────
     def update_key_from_peer(self, peer_state: int):

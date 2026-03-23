@@ -62,7 +62,7 @@ Tests:
 import sys
 sys.path.insert(0, '.')
 import unittest
-from native_bridge import _PyFallback as NC
+from ..native_bridge import _PyFallback as NC
 
 
 class TestResolveOp(unittest.TestCase):

@@ -41,15 +41,15 @@ import sys, ast
 sys.path.insert(0, '.')
 import unittest, copy
 
-from ir.nodes   import IRModule, IRFunction, IRBlock, IRInstruction, IROp, IROperand
-from ir.builder import IRBuilder
-from ir.cfg     import CFGBuilder
+from ..ir.nodes   import IRModule, IRFunction, IRBlock, IRInstruction, IROp, IROperand
+from ..ir.builder import IRBuilder
+from ..ir.cfg     import CFGBuilder
 
-from vm4.fragment_graph   import FragmentGraphBuilder, FragType
-from vm4.execution_fabric import ExecutionFabricEmitter
-from vm4.state_mesh       import StateMeshEmitter
-from vm4.dna_lock         import DNALockEmitter
-from vm4.vm4_engine       import VM4Engine
+from ..vm4.fragment_graph   import FragmentGraphBuilder, FragType
+from ..vm4.execution_fabric import ExecutionFabricEmitter
+from ..vm4.state_mesh       import StateMeshEmitter
+from ..vm4.dna_lock         import DNALockEmitter
+from ..vm4.vm4_engine       import VM4Engine
 
 
 def _exec(code: str) -> dict:

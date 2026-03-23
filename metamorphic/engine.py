@@ -20,7 +20,7 @@ output quá phình. Function splitting ở Transform phase đã xử lý rồi.
 """
 from __future__ import annotations
 
-from ir.nodes import IRModule, IRFunction, IRInstruction, IROp, IROperand
+from ..ir.nodes import IRModule, IRFunction, IRInstruction, IROp, IROperand
 from .variant_generator import VariantGenerator
 from .dispatcher        import MetamorphicDispatcher
 

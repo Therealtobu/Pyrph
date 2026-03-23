@@ -25,7 +25,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ir.nodes import IROperand, IRInstruction, IROp
+from ..ir.nodes import IROperand, IRInstruction, IROp
 
 
 # ── Pseudo-opcodes (stored as metadata on IROp.NOP instructions) ──────────────

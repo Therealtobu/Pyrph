@@ -1,9 +1,9 @@
 import sys; sys.path.insert(0, '.')
 import unittest, ast
-from ir.nodes import IROp, IROperand, IRInstruction, IRFunction, IRModule
-from ir.builder import IRBuilder
-from ir.cfg import CFGBuilder
-from ir_obf.semantic_fingerprint import SemanticFingerprintPass, _shadow_var
+from ..ir.nodes import IROp, IROperand, IRInstruction, IRFunction, IRModule
+from ..ir.builder import IRBuilder
+from ..ir.cfg import CFGBuilder
+from ..ir_obf.semantic_fingerprint import SemanticFingerprintPass, _shadow_var
 
 
 def _build(src: str) -> IRModule:

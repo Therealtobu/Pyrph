@@ -15,7 +15,7 @@ Algorithm:
 from __future__ import annotations
 import random
 from collections import defaultdict, deque
-from ir.nodes import IROp, IROperand, IRInstruction, IRBlock, IRModule
+from ..ir.nodes import IROp, IROperand, IRInstruction, IRBlock, IRModule
 from .ir_obf_utils import make_fake, make_nop
 
 

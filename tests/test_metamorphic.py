@@ -17,15 +17,15 @@ import sys, ast
 sys.path.insert(0, '.')
 import unittest, copy
 
-from ir.nodes        import IROp, IROperand, IRInstruction, IRBlock, IRFunction, IRModule
-from ir.builder      import IRBuilder
-from ir.cfg          import CFGBuilder
-from metamorphic.variant_generator import (
+from ..ir.nodes        import IROp, IROperand, IRInstruction, IRBlock, IRFunction, IRModule
+from ..ir.builder      import IRBuilder
+from ..ir.cfg          import CFGBuilder
+from ..metamorphic.variant_generator import (
     VariantGenerator, RegisterRenamer, ConstantSplitter,
     NOPPadder, BlockDuplicator, OperandFlipMBA, ChainedAssign,
 )
-from metamorphic.dispatcher import MetamorphicDispatcher
-from metamorphic.engine     import MetamorphicEngine
+from ..metamorphic.dispatcher import MetamorphicDispatcher
+from ..metamorphic.engine     import MetamorphicEngine
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -303,8 +303,8 @@ class TestMetamorphicEngine(unittest.TestCase):
 
     def test_engine_with_full_pipeline(self):
         """MetamorphicEngine must not crash when chained with IR obf passes."""
-        from ir_obf.substitution import InstructionSubstitutor
-        from ir_obf.encryptor    import BlockEncryptor
+        from ..ir_obf.substitution import InstructionSubstitutor
+        from ..ir_obf.encryptor    import BlockEncryptor
         src = "def double(n):\n    return n * 2\n"
         _, mod = _build_fn(src, "double")
         mod = MetamorphicEngine(n_variants=2, min_instrs=0).run(mod)

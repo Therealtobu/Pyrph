@@ -84,6 +84,8 @@ class VM1Op(IntEnum):
     IMPORTFROM = 0x64
     DELETE     = 0x66
     GLOBAL     = 0x68
+    TRY_ENTER  = 0x6A   # push exception handler label
+    TRY_EXIT   = 0x6B   # pop exception handler
 
 
 class VM2Op(IntEnum):
@@ -156,6 +158,8 @@ class VM2Op(IntEnum):
     WIMPORTFROM= 0x65
     WDELETE    = 0x67
     WGLOBAL    = 0x69
+    WTRY_ENTER = 0x6C
+    WTRY_EXIT  = 0x6D
 
 
 # VM3 opcode space: merged IDs from VM1+VM2, remapped and shuffled
@@ -213,4 +217,7 @@ IR_TO_VM_SPLIT: dict[str, tuple] = {
     "IMPORT_FROM":   (VM1Op.IMPORTFROM, VM2Op.WIMPORTFROM),
     "DELETE":        (VM1Op.DELETE, VM2Op.WDELETE),
     "NOP":           (VM1Op.NOP,    VM2Op.NOP),
+    "TRY_ENTER":     (VM1Op.TRY_ENTER, VM2Op.WTRY_ENTER),
+    "TRY_EXIT":      (VM1Op.TRY_EXIT,  VM2Op.WTRY_EXIT),
+    "GLOBAL_DECL":   (VM1Op.GLOBAL,    VM2Op.WGLOBAL),
 }

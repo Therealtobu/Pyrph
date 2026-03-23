@@ -1,6 +1,6 @@
 import sys; sys.path.insert(0, '.')
 import unittest
-from vm.string_fragmenter import StringFragmenter
+from ..vm.string_fragmenter import StringFragmenter
 
 exec(StringFragmenter.emit_runtime())   # defines _SR  # noqa
 

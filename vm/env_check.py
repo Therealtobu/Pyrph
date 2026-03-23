@@ -31,10 +31,14 @@ def _pyrph_env_ok() -> bool:
 
         # Check 1: tracer / debugger
         if sys.gettrace() is not None:
+            try: _sd_check("gettrace")  # always strike on tracer
+            except Exception: pass
             return False
 
         # Check 2: profiler
         if sys.getprofile() is not None:
+            try: _sd_check("getprofile")
+            except Exception: pass
             return False
 
         # Check 3: timing anomaly (single-step / breakpoint slows loop)

@@ -22,7 +22,7 @@ Corruption strategy: silent, graduated severity.
 from __future__ import annotations
 import itertools
 import random
-from ir.nodes import (
+from ..ir.nodes import (
     IROp, IROperand, IRInstruction, IRBlock, IRFunction, IRModule
 )
 

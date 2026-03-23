@@ -22,7 +22,7 @@ doesn't expand uniformly (makes pattern-matching harder).
 from __future__ import annotations
 import random
 from .ir_obf_utils import new_tmp
-from ir.nodes import IROp, IROperand, IRInstruction, IRModule, IRFunction, IRBlock
+from ..ir.nodes import IROp, IROperand, IRInstruction, IRModule, IRFunction, IRBlock
 
 _PROB = 0.65   # probability any eligible instruction gets substituted
 _REG  = lambda n: IROperand("reg", n)

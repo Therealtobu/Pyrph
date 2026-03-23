@@ -12,23 +12,23 @@ Phase order:
   8. VM compile
 """
 import ast
-import config
+from . import config
 
-from normalize.pass_manager         import NormalizePassManager
-from transform.pass_manager         import TransformPassManager
-from ir.builder                     import IRBuilder
-from ir.cfg                         import CFGBuilder
-from ir.dependency                  import DependencyAnalyzer
-from vm.import_obf                  import ImportObfuscator
-from ir_obf.semantic_fingerprint    import SemanticFingerprintPass
-from ir_obf.substitution            import InstructionSubstitutor
-from ir_obf.shuffler                import InstructionShuffler
-from ir_obf.rewriter                import ControlFlowRewriter
-from ir_obf.encryptor               import BlockEncryptor
-from sag.sag_pass                   import SAGPass
-from metamorphic.engine             import MetamorphicEngine
-from vm.interleaver                 import Interleaver
-from vm.codegen                     import VMCodeGen
+from .normalize.pass_manager         import NormalizePassManager
+from .transform.pass_manager         import TransformPassManager
+from .ir.builder                     import IRBuilder
+from .ir.cfg                         import CFGBuilder
+from .ir.dependency                  import DependencyAnalyzer
+from .vm.import_obf                  import ImportObfuscator
+from .ir_obf.semantic_fingerprint    import SemanticFingerprintPass
+from .ir_obf.substitution            import InstructionSubstitutor
+from .ir_obf.shuffler                import InstructionShuffler
+from .ir_obf.rewriter                import ControlFlowRewriter
+from .ir_obf.encryptor               import BlockEncryptor
+from .sag.sag_pass                   import SAGPass
+from .metamorphic.engine             import MetamorphicEngine
+from .vm.interleaver                 import Interleaver
+from .vm.codegen                     import VMCodeGen
 
 
 class ObfuscationPipeline:

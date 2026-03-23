@@ -53,6 +53,10 @@ class IROp(Enum):
     CMP_IS        = auto()
     CMP_IN        = auto()
 
+    # Exception handling
+    TRY_ENTER     = auto()   # push exception handler (label = handler block)
+    TRY_EXIT      = auto()   # pop exception handler
+
     # Control flow
     JUMP          = auto()
     JUMP_IF_TRUE  = auto()

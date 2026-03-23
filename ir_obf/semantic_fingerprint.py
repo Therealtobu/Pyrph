@@ -11,7 +11,7 @@ Nếu bất kỳ STORE nào bị patch:
 """
 from __future__ import annotations
 import itertools
-from ir.nodes import IROp, IROperand, IRInstruction, IRFunction, IRModule
+from ..ir.nodes import IROp, IROperand, IRInstruction, IRFunction, IRModule
 
 _ctr = itertools.count(1)    # global – mỗi instruction dùng một lần
 

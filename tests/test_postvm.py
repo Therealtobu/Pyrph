@@ -43,12 +43,12 @@ import sys, ast
 sys.path.insert(0, '.')
 import unittest
 
-from postvm.peil   import PEILEmitter
-from postvm.dli    import DLIEmitter, DLIFragment
-from postvm.oel    import OELEmitter
-from postvm.tbl    import TBLEmitter
-from postvm.pdl    import PDLEmitter
-from postvm.engine import PostVMEngine
+from ..postvm.peil   import PEILEmitter
+from ..postvm.dli    import DLIEmitter, DLIFragment
+from ..postvm.oel    import OELEmitter
+from ..postvm.tbl    import TBLEmitter
+from ..postvm.pdl    import PDLEmitter
+from ..postvm.engine import PostVMEngine
 
 
 def _exec_runtime(*emitters) -> dict:

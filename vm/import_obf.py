@@ -20,7 +20,7 @@ Compile-time: ImportObfuscator.process(ir_module) → mutates operands in-place
 Runtime: không cần thêm class riêng – dùng _SR đã có
 """
 from __future__ import annotations
-from ir.nodes import IROp, IRModule, IROperand
+from ..ir.nodes import IROp, IRModule, IROperand
 
 
 class ImportObfuscator:

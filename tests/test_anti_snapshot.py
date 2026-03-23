@@ -1,6 +1,6 @@
 import sys; sys.path.insert(0, '.')
 import unittest, ast
-from vm.anti_snapshot import AntiSnapshot
+from ..vm.anti_snapshot import AntiSnapshot
 
 exec(AntiSnapshot.emit_runtime(period=4))   # noqa
 
