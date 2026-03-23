@@ -33,7 +33,7 @@ Cấu trúc emitted:
         return [foo__var0, foo__var1, foo__var2][_vid](a, b)
 """
 from __future__ import annotations
-from ..ir.nodes import IROp, IROperand, IRInstruction, IRFunction, IRModule
+from ir.nodes import IROp, IROperand, IRInstruction, IRFunction, IRModule
 
 _VAR   = lambda n: IROperand("var",   n)
 _CONST = lambda v: IROperand("const", v)

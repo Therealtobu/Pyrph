@@ -48,23 +48,23 @@ import time as _ef_time
 
 _EF_MASK    = 0xFFFFFFFF
 _EF_MUL     = 0x6C62272E
-_EF_MAX_SKIP = 30          # force-schedule after this many skips
+_EF_MAX_SKIP = 64          # force-schedule after this many skips
 
 
 def _ef_state_hash(sm_state: dict) -> int:
     """Hash of current state mesh → used in scheduler."""
-    h = len(sm_state)
+    h = 0
     for k, v in sm_state.items():
-        try:
-            h = (h ^ hash(k) ^ hash(v)) & _EF_MASK
-        except TypeError:
-            h = (h ^ hash(k) ^ id(v)) & _EF_MASK
+        h = (h ^ hash(str(k)) ^ hash(str(v))) & _EF_MASK
     return h
 
 
 def _ef_time_jitter() -> int:
-    """Timing entropy — disabled for determinism (state provides sufficient entropy)."""
-    return 0
+    """Low bits of perf_counter_ns for timing entropy."""
+    try:
+        return _ef_time.perf_counter_ns() & 0xFFF
+    except Exception:
+        return 0
 
 
 def _ef_pick(pool_size: int, state_hash: int,
@@ -119,7 +119,7 @@ def _ef_converged(done_real: set, all_real: list, hist: list) -> bool:
 def _ef_run(pool: list, real_ids: list,
             sm_state: dict, sag_state_fn,
             dna_partial_init: int,
-            max_cycles: int = 500) -> tuple:
+            max_cycles: int = 10000) -> tuple:
     """
     Main execution fabric loop.
 

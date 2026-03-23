@@ -24,7 +24,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Callable
 
-from ..ir.nodes import (
+from ir.nodes import (
     IROp, IROperand, IRInstruction, IRBlock,
     IRFunction, IRModule,
 )

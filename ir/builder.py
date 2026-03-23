@@ -97,11 +97,6 @@ class IRBuilder(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef):
         parent_ctx = self._ctx
         args = [a.arg for a in node.args.args]
-        # Capture *args and **kwargs as special markers
-        if node.args.vararg:
-            args.append('*' + node.args.vararg.arg)
-        if node.args.kwarg:
-            args.append('**' + node.args.kwarg.arg)
         fn   = IRFunction(name=node.name, args=args)
         self._module.functions.append(fn)
         self._ctx = _FuncContext(fn, self._module)
@@ -121,86 +116,6 @@ class IRBuilder(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
-    def visit_Try(self, node: ast.Try):
-        """try/except/finally - emit try body with exception handler."""
-        ctx = self._ctx
-        except_blk = ctx.new_block("except_entry")
-        after_blk  = ctx.new_block("try_after")
-
-        # TRY_ENTER: push exception handler label onto VM exception stack
-        # Use src operand (not instruction label) so VM can read handler PC
-        ctx.emit(IROp.TRY_ENTER, src=[IROperand("lbl", except_blk.label)])
-
-        # Try body
-        for s in node.body:
-            self.visit(s)
-        if not ctx.block.is_terminated():
-            ctx.emit(IROp.TRY_EXIT)          # pop handler - success
-            ctx.emit_jump(after_blk)
-
-        # Except handler(s)
-        ctx.switch(except_blk)
-        ctx.emit(IROp.TRY_EXIT)              # pop handler inside handler
-        for handler in node.handlers:
-            for s in handler.body:
-                self.visit(s)
-            if not ctx.block.is_terminated():
-                ctx.emit_jump(after_blk)
-
-        # Finally / after
-        ctx.switch(after_blk)
-        for s in node.finalbody if hasattr(node, 'finalbody') and node.finalbody else []:
-            self.visit(s)
-
-    visit_TryStar = visit_Try   # Python 3.11+ ExceptionGroup
-
-    def visit_ClassDef(self, node: ast.ClassDef):
-        """Compile class using type(name, (object,), {method: fn, ...})."""
-        ctx = self._ctx
-        cls_name = node.name
-
-        # Visit method functions (registers them as IR functions)
-        method_names = []
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                self.visit(item)
-                method_names.append(item.name)
-
-        # Load type builtin
-        type_reg = ctx.temp()
-        ctx.emit(IROp.LOAD_VAR, dst=_REG(type_reg), src=[_VAR("type")])
-
-        # bases = (object,)
-        obj_reg = ctx.temp()
-        ctx.emit(IROp.LOAD_VAR, dst=_REG(obj_reg), src=[_VAR("object")])
-        bases_reg = ctx.temp()
-        ctx.emit(IROp.BUILD_LIST, dst=_REG(bases_reg),
-                 src=[_REG(obj_reg), IROperand("count", 1)])
-
-        # Build methods dict: {name_str: fn_ref, ...}
-        pairs = []
-        for mname in method_names:
-            nr = ctx.temp()
-            idx = self._module.intern_const(mname)
-            ctx.emit(IROp.LOAD_CONST, dst=_REG(nr), src=[IROperand("str_ref", idx)])
-            vr = ctx.temp()
-            ctx.emit(IROp.LOAD_VAR, dst=_REG(vr), src=[_VAR(mname)])
-            pairs += [_REG(nr), _REG(vr)]
-        dict_reg = ctx.temp()
-        ctx.emit(IROp.BUILD_DICT, dst=_REG(dict_reg),
-                 src=pairs + [IROperand("count", len(method_names))])
-
-        # cls name string
-        cn_reg = ctx.temp()
-        cn_idx = self._module.intern_const(cls_name)
-        ctx.emit(IROp.LOAD_CONST, dst=_REG(cn_reg), src=[IROperand("str_ref", cn_idx)])
-
-        # type(name, bases, dict) → class object
-        cls_reg = ctx.temp()
-        ctx.emit(IROp.CALL, dst=_REG(cls_reg),
-                 src=[_REG(type_reg), _REG(cn_reg), _REG(bases_reg), _REG(dict_reg)])
-        ctx.emit(IROp.STORE_VAR, src=[_REG(cls_reg), _VAR(cls_name)])
-
     def visit_Return(self, node: ast.Return):
         if node.value:
             val = self._expr(node.value)
@@ -213,30 +128,9 @@ class IRBuilder(ast.NodeVisitor):
         for target in node.targets:
             self._assign_target(target, src_op)
 
-    def visit_AugAssign(self, node: ast.AugAssign):
-        # total += i  →  LOAD_VAR total; ADD i; STORE_VAR total
-        from .nodes import IROp, IROperand
-        ctx = self._ctx
-        # Load current value of target
-        if isinstance(node.target, ast.Name):
-            tgt_name = node.target.id
-            cur = ctx.temp()
-            ctx.emit(IROp.LOAD_VAR, dst=_REG(cur), src=[_VAR(tgt_name)])
-            rhs = self._expr(node.value)
-            result = ctx.temp()
-            op_map = {
-                ast.Add: IROp.ADD, ast.Sub: IROp.SUB, ast.Mult: IROp.MUL,
-                ast.Div: IROp.DIV, ast.FloorDiv: IROp.FLOORDIV, ast.Mod: IROp.MOD,
-                ast.Pow: IROp.POW, ast.BitAnd: IROp.BAND, ast.BitOr: IROp.BOR,
-                ast.BitXor: IROp.BXOR, ast.LShift: IROp.LSHIFT, ast.RShift: IROp.RSHIFT,
-            }
-            ir_op = op_map.get(type(node.op), IROp.ADD)
-            ctx.emit(ir_op, dst=_REG(result), src=[_REG(cur), rhs])
-            ctx.emit(IROp.STORE_VAR, src=[_REG(result), _VAR(tgt_name)])
-        else:
-            # Fallback for subscript/attr augassign - treat as assign
-            rhs = self._expr(node.value)
-            self._assign_target(node.target, rhs)
+    def visit_AugAssign(self, node: ast.Assign):
+        # Normaliser should have removed these; handle as fallback
+        self.visit_Assign(node)
 
     def visit_Expr(self, node: ast.Expr):
         self._expr(node.value)   # side-effect; result discarded
@@ -497,136 +391,6 @@ class IRBuilder(ast.NodeVisitor):
         self._ctx.emit(IROp.BUILD_DICT, dst=_REG(tmp),
                        src=pairs + [_CNT(len(node.keys))])
         return _REG(tmp)
-
-    def _expr_IfExp(self, node: ast.IfExp) -> IROperand:
-        """Ternary expression: body if test else orelse"""
-        ctx = self._ctx
-        cond     = self._expr(node.test)
-        cond_reg = ctx.temp()
-        ctx.emit(IROp.STORE_VAR, src=[cond, _VAR(cond_reg)])
-
-        true_blk  = ctx.new_block("tern_true")
-        false_blk = ctx.new_block("tern_false")
-        merge_blk = ctx.new_block("tern_merge")
-        res_reg   = ctx.temp()
-
-        ctx.emit_branch(cond_reg, true_blk, false_blk)
-
-        ctx.switch(true_blk)
-        tv = self._expr(node.body)
-        ctx.emit(IROp.STORE_VAR, src=[tv, _VAR(res_reg)])
-        if not ctx.block.is_terminated():
-            ctx.emit_jump(merge_blk)
-
-        ctx.switch(false_blk)
-        fv = self._expr(node.orelse)
-        ctx.emit(IROp.STORE_VAR, src=[fv, _VAR(res_reg)])
-        if not ctx.block.is_terminated():
-            ctx.emit_jump(merge_blk)
-
-        ctx.switch(merge_blk)
-        out = ctx.temp()
-        ctx.emit(IROp.LOAD_VAR, dst=_REG(out), src=[_VAR(res_reg)])
-        return _REG(out)
-
-    def _expr_JoinedStr(self, node: ast.JoinedStr) -> IROperand:
-        """f-string: build via format"""
-        ctx = self._ctx
-        parts = []
-        for val in node.values:
-            if isinstance(val, ast.FormattedValue):
-                parts.append(self._expr(val.value))
-            elif isinstance(val, ast.Constant):
-                # Use intern_string so it goes into string_table (like other string literals)
-                tmp = ctx.temp()
-                idx = self._module.intern_string(str(val.value))
-                ctx.emit(IROp.LOAD_CONST, dst=_REG(tmp), src=[IROperand("str_ref", idx)])
-                parts.append(_REG(tmp))
-        if not parts:
-            tmp = ctx.temp()
-            idx = self._module.intern_const("")
-            ctx.emit(IROp.LOAD_CONST, dst=_REG(tmp), src=[IROperand("str_ref", idx)])
-            return _REG(tmp)
-        # Join: use str() + str() chains
-        result = parts[0]
-        str_fn = ctx.temp()
-        ctx.emit(IROp.LOAD_VAR, dst=_REG(str_fn), src=[_VAR("str")])
-        # Convert result to str
-        r0 = ctx.temp()
-        ctx.emit(IROp.CALL, dst=_REG(r0), src=[_REG(str_fn), result])
-        result = _REG(r0)
-        for part in parts[1:]:
-            rp = ctx.temp()
-            ctx.emit(IROp.CALL, dst=_REG(rp), src=[_REG(str_fn), part])
-            radd = ctx.temp()
-            ctx.emit(IROp.ADD, dst=_REG(radd), src=[result, _REG(rp)])
-            result = _REG(radd)
-        return result
-
-    def _expr_ListComp(self, node: ast.ListComp) -> IROperand:
-        """[expr for target in iter if cond ...]"""
-        ctx = self._ctx
-        result_reg = ctx.temp()
-        ctx.emit(IROp.BUILD_LIST, dst=_REG(result_reg),
-                 src=[IROperand("count", 0)])
-
-        for gen in node.generators:
-            iter_op = self._expr(gen.iter)
-            it_reg  = ctx.temp()
-            ctx.emit(IROp.GET_ITER, dst=_REG(it_reg), src=[iter_op])
-
-            loop_blk = ctx.new_block("lc_loop")
-            body_blk = ctx.new_block("lc_body")
-            exit_blk = ctx.new_block("lc_exit")
-
-            ctx.emit_jump(loop_blk)
-            ctx.switch(loop_blk)
-
-            next_reg = ctx.temp()
-            ctx.emit(IROp.FOR_ITER, dst=_REG(next_reg),
-                     src=[_REG(it_reg)], label=exit_blk.label)
-
-            ctx.switch(body_blk)
-            self._assign_target(gen.target, _REG(next_reg))
-
-            # Apply filters
-            for if_cond in gen.ifs:
-                cond  = self._expr(if_cond)
-                cr    = ctx.temp()
-                ctx.emit(IROp.STORE_VAR, src=[cond, _VAR(cr)])
-                skip_blk = ctx.new_block("lc_skip")
-                ctx.emit(IROp.JUMP_IF_FALSE, src=[_REG(cr)], label=skip_blk.label)
-                # fallthrough to append
-
-            # Append elt
-            elt_op  = self._expr(node.elt)
-            app_reg = ctx.temp()
-            ctx.emit(IROp.LOAD_ATTR, dst=_REG(app_reg),
-                     src=[_REG(result_reg), IROperand("attr", "append")])
-            call_r  = ctx.temp()
-            ctx.emit(IROp.CALL, dst=_REG(call_r), src=[_REG(app_reg), elt_op])
-
-            if gen.ifs:
-                ctx.switch(skip_blk)
-
-            if not ctx.block.is_terminated():
-                ctx.emit_jump(loop_blk)
-            ctx.switch(exit_blk)
-
-        return _REG(result_reg)
-
-    def _expr_SetComp(self, node: ast.SetComp) -> IROperand:
-        """Fallback: just return empty set"""
-        ctx = self._ctx; r = ctx.temp()
-        ctx.emit(IROp.NOP)
-        # TODO: proper set comp - for now build as list and convert
-        return _REG(r)
-
-    def _expr_DictComp(self, node: ast.DictComp) -> IROperand:
-        """Fallback: return empty dict"""
-        ctx = self._ctx; r = ctx.temp()
-        ctx.emit(IROp.BUILD_DICT, dst=_REG(r), src=[IROperand("count", 0)])
-        return _REG(r)
 
     def _expr_BoolOp(self, node: ast.BoolOp) -> IROperand:
         ir_op = IROp.AND if isinstance(node.op, ast.And) else IROp.OR

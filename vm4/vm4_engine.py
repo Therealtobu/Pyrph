@@ -20,7 +20,7 @@ import json
 import zlib
 import base64
 
-from ..ir.nodes import IRModule
+from ir.nodes import IRModule
 from .fragment_graph  import FragmentGraphBuilder, FragmentGraph
 from .execution_fabric import ExecutionFabricEmitter
 from .state_mesh       import StateMeshEmitter

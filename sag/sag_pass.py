@@ -24,7 +24,7 @@ Config:
 """
 from __future__ import annotations
 
-from ..ir.nodes import IRModule
+from ir.nodes import IRModule
 from .alias_builder  import AliasBuilder
 from .ir_injector    import SAGIRInjector
 from .runtime_emitter import SAGRuntimeEmitter

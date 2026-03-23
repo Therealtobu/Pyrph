@@ -41,9 +41,9 @@ import sys, ast
 sys.path.insert(0, '.')
 import unittest
 
-from ..parallel_engine.shared_state  import SharedState
-from ..parallel_engine.rust_engine   import RustEngine
-from ..parallel_engine.coordinator   import (
+from parallel_engine.shared_state  import SharedState
+from parallel_engine.rust_engine   import RustEngine
+from parallel_engine.coordinator   import (
     ParallelCoordinator, ParallelCoordinatorEmitter
 )
 

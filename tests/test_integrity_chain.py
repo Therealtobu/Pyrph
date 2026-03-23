@@ -1,6 +1,6 @@
 import sys; sys.path.insert(0, '.')
 import unittest
-from ..vm.integrity_chain import IntegrityChainBuilder
+from vm.integrity_chain import IntegrityChainBuilder
 
 exec(IntegrityChainBuilder.emit_runtime())   # defines _ICV  # noqa
 

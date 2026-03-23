@@ -30,7 +30,7 @@ appear to depend on multiple sources with dynamic selection.
 from __future__ import annotations
 import itertools
 
-from ..ir.nodes import (
+from ir.nodes import (
     IROp, IROperand, IRInstruction, IRBlock,
     IRFunction, IRModule,
 )

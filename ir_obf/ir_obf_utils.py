@@ -1,6 +1,6 @@
 """Shared utilities for ir_obf passes."""
 import random
-from ..ir.nodes import IRFunction, IRInstruction, IROp, IROperand
+from ir.nodes import IRFunction, IRInstruction, IROp, IROperand
 
 
 def new_tmp(fn: IRFunction) -> str:

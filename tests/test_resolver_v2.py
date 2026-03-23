@@ -1,7 +1,7 @@
 import sys
 sys.path.insert(0, '.')
 import unittest
-from ..vm.resolver_v2 import OpcodeResolverV2
+from vm.resolver_v2 import OpcodeResolverV2
 
 
 class TestResolverV2(unittest.TestCase):

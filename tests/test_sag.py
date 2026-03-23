@@ -37,15 +37,15 @@ import sys, ast
 sys.path.insert(0, '.')
 import unittest
 
-from ..ir.nodes        import IROp, IROperand, IRInstruction, IRFunction, IRModule
-from ..ir.builder      import IRBuilder
-from ..ir.cfg          import CFGBuilder
+from ir.nodes        import IROp, IROperand, IRInstruction, IRFunction, IRModule
+from ir.builder      import IRBuilder
+from ir.cfg          import CFGBuilder
 
-from ..sag.alias_node      import AliasSource, AliasSet, AliasGraph
-from ..sag.alias_builder   import AliasBuilder
-from ..sag.ir_injector     import SAGIRInjector
-from ..sag.sag_pass        import SAGPass
-from ..sag.runtime_emitter import SAGRuntimeEmitter
+from sag.alias_node      import AliasSource, AliasSet, AliasGraph
+from sag.alias_builder   import AliasBuilder
+from sag.ir_injector     import SAGIRInjector
+from sag.sag_pass        import SAGPass
+from sag.runtime_emitter import SAGRuntimeEmitter
 
 
 def _build(src: str) -> IRModule:

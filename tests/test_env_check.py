@@ -1,6 +1,6 @@
 import sys; sys.path.insert(0, '.')
 import unittest
-from ..vm.env_check import EnvCheck
+from vm.env_check import EnvCheck
 
 exec(EnvCheck.emit_runtime())   # defines _pyrph_env_ok, _pyrph_poison_state  # noqa
 

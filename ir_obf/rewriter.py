@@ -18,7 +18,7 @@ Transforms applied:
 """
 from __future__ import annotations
 import random
-from ..ir.nodes import (
+from ir.nodes import (
     IROp, IROperand, IRInstruction, IRBlock, IRFunction, IRModule
 )
 from .ir_obf_utils import make_fake, new_tmp, rand_key

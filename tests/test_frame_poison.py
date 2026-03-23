@@ -1,6 +1,6 @@
 import sys; sys.path.insert(0, '.')
 import unittest
-from ..vm.frame_poison import FramePoisoner
+from vm.frame_poison import FramePoisoner
 
 exec(FramePoisoner.emit_runtime())   # defines _SS  # noqa
 

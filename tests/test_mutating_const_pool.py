@@ -1,6 +1,6 @@
 import sys; sys.path.insert(0, '.')
 import unittest
-from ..ir_obf.mutating_const_pool import MutatingConstPool
+from ir_obf.mutating_const_pool import MutatingConstPool
 
 exec(MutatingConstPool.emit_runtime())   # defines _MCP
 

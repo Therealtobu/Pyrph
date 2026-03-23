@@ -27,7 +27,7 @@ Results stored:
 """
 from __future__ import annotations
 import random
-from ..ir.nodes import IROp, IRInstruction, IRBlock, IRModule
+from ir.nodes import IROp, IRInstruction, IRBlock, IRModule
 
 _MASK32 = 0xFFFFFFFF
 _MUL    = 0x5851F42D   # LCG multiplier (from SplitMix64)

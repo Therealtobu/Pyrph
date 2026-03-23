@@ -24,7 +24,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..ir.nodes import IRModule, IRFunction, IRInstruction, IROp
+from ir.nodes import IRModule, IRFunction, IRInstruction, IROp
 from .opcodes  import IR_TO_VM_SPLIT, VM1Op, VM2Op
 from .resolver import OpcodeResolver, make_session_key
 from .scheduler import Scheduler
@@ -100,72 +100,23 @@ class Interleaver:
                 if block.encrypt_key is None:
                     block.encrypt_key = random.randint(1, _MASK32)
 
-                if block.label:
-                    label_map[block.label] = len(all_vm3)
-
                 for ir_instr in block.instructions:
                     # Record label
+                    if ir_instr.label:
+                        label_map[ir_instr.label] = len(all_vm3)
 
                     vm3_instrs = self._convert_instr(
                         ir_instr, block.encrypt_key, res1, res2, sched
                     )
                     all_vm3.extend(vm3_instrs)
-                    # cross_update is called inside _convert_instr / _split_binary
-                    # after EACH encode, to match runtime behavior exactly.
 
-        # Merge string_table (str→id) reversed into const_table so str_ref operands work
-        merged_consts = dict(module.const_table)
-        for s, sid in module.string_table.items():
-            if sid not in merged_consts:
-                merged_consts[sid] = s
+                    # Cross-key update after every instruction
+                    Scheduler.cross_update(res1, res2)
 
         return VM3Bytecode(
             instructions  = all_vm3,
-            const_table   = merged_consts,
+            const_table   = dict(module.const_table),
             string_table  = dict(module.string_table),
-            seed_key1     = key1,
-            seed_key2     = key2,
-            sched_seed    = sched_seed,
-            sched_period  = self._period,
-            label_map     = label_map,
-        )
-
-
-    def interleave_function(self, fn, shared_const_table: dict,
-                            shared_string_table: dict) -> 'VM3Bytecode':
-        """Compile a single IRFunction into its own VM3Bytecode with fresh keys."""
-        key1       = make_session_key()
-        key2       = make_session_key() ^ 0xCAFE_BABE
-        sched_seed = make_session_key()
-
-        res1  = OpcodeResolver(key=key1)
-        res2  = OpcodeResolver(key=key2)
-        sched = Scheduler(period=self._period, seed=sched_seed)
-
-        all_vm3:   list = []
-        label_map: dict = {}
-
-        for block in fn.blocks:
-            if block.encrypt_key is None:
-                block.encrypt_key = random.randint(1, _MASK32)
-            if block.label:
-                label_map[block.label] = len(all_vm3)
-
-            for ir_instr in block.instructions:
-                vm3_instrs = self._convert_instr(
-                    ir_instr, block.encrypt_key, res1, res2, sched)
-                all_vm3.extend(vm3_instrs)
-
-        # Merge string values into const_table
-        _merged = dict(shared_const_table)
-        for _s, _sid in shared_string_table.items():
-            if _sid not in _merged:
-                _merged[_sid] = _s
-
-        return VM3Bytecode(
-            instructions  = all_vm3,
-            const_table   = _merged,
-            string_table  = shared_string_table,
             seed_key1     = key1,
             seed_key2     = key2,
             sched_seed    = sched_seed,
@@ -191,8 +142,6 @@ class Interleaver:
             raw_op    = vm1op if vm_slot == 0 else vm2op
             resolver  = res1  if vm_slot == 0 else res2
             enc_op    = resolver.encode(int(raw_op))
-            # cross_update immediately after encode → matches runtime
-            Scheduler.cross_update(res1, res2)
             operands  = self._operands(ir)
             instr = VM3Instr(
                 enc_op   = enc_op,
@@ -221,11 +170,7 @@ class Interleaver:
         ops_b = self._operands_partial(ir, side="B", tmp=tmp)
 
         enc_a = res1.encode(int(VM1Op.RLOAD_VAR))
-        # cross_update after part_a encode → matches runtime cross_update after part_a decode
-        Scheduler.cross_update(res1, res2)
         enc_b = res2.encode(int(vm2op))
-        # cross_update after part_b encode → matches runtime cross_update after part_b decode
-        Scheduler.cross_update(res1, res2)
 
         part_a = VM3Instr(
             enc_op     = enc_a,

@@ -5,18 +5,18 @@ Test các trường hợp thực tế.
 import sys; sys.path.insert(0, '.')
 import ast, unittest
 
-from ..ir.builder              import IRBuilder
-from ..ir.cfg                  import CFGBuilder
-from ..ir.dependency           import DependencyAnalyzer
-from ..ir_obf.semantic_fingerprint import SemanticFingerprintPass
-from ..ir_obf.substitution     import InstructionSubstitutor
-from ..ir_obf.shuffler         import InstructionShuffler
-from ..ir_obf.rewriter         import ControlFlowRewriter
-from ..ir_obf.encryptor        import BlockEncryptor
-from ..ir_obf.mutating_const_pool  import MutatingConstPool
-from ..vm.resolver_v2          import OpcodeResolverV2
-from ..vm.interleaver          import Interleaver
-from ..vm.codegen              import VMCodeGen
+from ir.builder              import IRBuilder
+from ir.cfg                  import CFGBuilder
+from ir.dependency           import DependencyAnalyzer
+from ir_obf.semantic_fingerprint import SemanticFingerprintPass
+from ir_obf.substitution     import InstructionSubstitutor
+from ir_obf.shuffler         import InstructionShuffler
+from ir_obf.rewriter         import ControlFlowRewriter
+from ir_obf.encryptor        import BlockEncryptor
+from ir_obf.mutating_const_pool  import MutatingConstPool
+from vm.resolver_v2          import OpcodeResolverV2
+from vm.interleaver          import Interleaver
+from vm.codegen              import VMCodeGen
 
 exec(MutatingConstPool.emit_runtime())   # defines _MCP  # noqa
 
@@ -98,7 +98,7 @@ class TestResolverV2InPipeline(unittest.TestCase):
     """OpcodeResolverV2 sequential encode→decode for a realistic op sequence."""
 
     def test_realistic_opcode_sequence(self):
-        from ..vm.opcodes import VM1Op
+        from vm.opcodes import VM1Op
         key  = 0xFEED_FACE
         # Simulate encoding at compile time
         enc_r = OpcodeResolverV2(key=key)
