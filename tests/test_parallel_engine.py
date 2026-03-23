@@ -40,6 +40,7 @@ ParallelCoordinatorEmitter:
 import sys, ast
 sys.path.insert(0, '.')
 import unittest
+import time
 
 from ..parallel_engine.shared_state  import SharedState
 from ..parallel_engine.rust_engine   import RustEngine
@@ -206,6 +207,32 @@ class TestParallelCoordinator(unittest.TestCase):
         c1 = ParallelCoordinator([], {}, 0x1111, 0x2222)
         c2 = ParallelCoordinator([], {}, 0x3333, 0x4444)
         self.assertNotEqual(c1._shared.cross_key, c2._shared.cross_key)
+
+    def test_run_process_parallel_waits_for_vm3_result(self):
+        coord = self._make(6)
+
+        class _VM3:
+            def run(self, _init_env):
+                time.sleep(0.02)  # Ensure Rust reaches confirmation first.
+                return 1337
+
+        vm3 = _VM3()
+        result = coord.run_process_parallel(vm3, {})
+        self.assertEqual(result, 1337)
+
+    def test_run_process_parallel_repeat_no_state_leak(self):
+        class _VM3:
+            def __init__(self, value):
+                self._value = value
+            def run(self, _init_env):
+                time.sleep(0.01)
+                return self._value
+
+        for i in range(12):
+            coord = self._make(8)
+            vm3 = _VM3(1000 + i)
+            out = coord.run_process_parallel(vm3, {})
+            self.assertEqual(out, 1000 + i)
 
 
 # ── Emitter ───────────────────────────────────────────────────────────────────
