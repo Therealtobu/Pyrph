@@ -80,13 +80,32 @@ class SharedState:
 
     def restore(self, snap: dict):
         with self._lock:
-            self.vm3_state       = snap['vm3_state']
-            self.rust_state      = snap['rust_state']
-            self.cross_key       = snap['cross_key']
-            self.last_vm3_out    = snap['last_vm3_out']
-            self.last_rust_out   = snap['last_rust_out']
-            self.instr_counter   = snap['counter']
-            self._interleave_idx = snap['interleave']
+            if not isinstance(snap, dict):
+                return
+
+            def _as_int(val, default=0):
+                try:
+                    return int(val) & _MASK32
+                except Exception:
+                    return default
+
+            self.vm3_state     = _as_int(snap.get('vm3_state'), self.vm3_state)
+            self.rust_state    = _as_int(snap.get('rust_state'), self.rust_state)
+            self.last_vm3_out  = _as_int(snap.get('last_vm3_out'), self.last_vm3_out)
+            self.last_rust_out = _as_int(snap.get('last_rust_out'), self.last_rust_out)
+            self.instr_counter = _as_int(snap.get('counter'), self.instr_counter)
+
+            raw_turn = snap.get('interleave', self._interleave_idx)
+            try:
+                self._interleave_idx = int(raw_turn) & 1
+            except Exception:
+                pass
+
+            ck = snap.get('cross_key')
+            if isinstance(ck, int):
+                self.cross_key = ck & _MASK32
+            else:
+                self.cross_key = self._compute_cross_key()
 
     # ── Interleave control ────────────────────────────────────────────────────
     def whose_turn(self) -> int:

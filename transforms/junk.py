@@ -4,6 +4,7 @@ transforms/junk.py
 JunkPass — sprinkle meaningless top-level dead-code statements.
 """
 from __future__ import annotations
+import ast
 import random
 import string
 from ..core.base   import ObfPass
@@ -40,13 +41,11 @@ class JunkPass(ObfPass):
             density = self.opts.get("density", 0.15)
             lines   = code.splitlines()
             n_junk  = max(1, int(len(lines) * density))
-            top_level = [i for i,l in enumerate(lines) if l and not l[0].isspace()]
-            if not top_level: return self._ok(code, message="no top-level lines found")
-            # Filter out positions that would break try/except/if structure:
-            # 1. Don't insert BEFORE except/finally/else/elif lines
-            # 2. Don't insert before lines that are themselves followed by
-            #    a continuation keyword (e.g. last line of a try body)
-            _CONT = {"except","finally","else","elif"}
+            mod = ast.parse(code)
+            def _stmt_start(stmt):
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and stmt.decorator_list:
+                    return min(d.lineno for d in stmt.decorator_list) - 1
+                return stmt.lineno - 1
 
             def _line_first_word(idx):
                 s = lines[idx].strip().split()
@@ -59,12 +58,27 @@ class JunkPass(ObfPass):
                         return s.split()[0] if s.split() else ""
                 return ""
 
+            def _prev_nonempty_idx(idx):
+                for j in range(idx - 1, -1, -1):
+                    if lines[j].strip():
+                        return j
+                return -1
+
             safe_positions = [
                 i for i in top_level
                 # don't insert BEFORE a continuation line
                 if _line_first_word(i) not in _CONT
                 # don't insert before a line that is followed by a continuation
                 and _next_first_word(i) not in _CONT
+                # don't split decorator chains:
+                #   @dec
+                #   def f(...):
+                # inserting between these lines is invalid syntax.
+                and not lines[i].lstrip().startswith("@")
+                and (
+                    (p := _prev_nonempty_idx(i)) < 0
+                    or not lines[p].lstrip().startswith("@")
+                )
             ]
             if not safe_positions:
                 return self._ok(code, message="no safe positions for junk")

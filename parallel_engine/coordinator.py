@@ -138,6 +138,8 @@ class ParallelCoordinator:
             r_env = dict(init_env)
             for ins in self._bc_rust:
                 self._rust_eng.exec_one(ins)
+            # Avoid race: confirmation must be derived from finalized VM3 result.
+            vm3_done.wait(timeout=30)
             rust_result[0] = self._rust_eng.confirmation_value(
                 vm3_result[0] if vm3_result[0] is not None and
                                   isinstance(vm3_result[0], int) else 0
