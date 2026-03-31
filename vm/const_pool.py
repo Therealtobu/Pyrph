@@ -124,9 +124,10 @@ def _cp_get(idx):
         return None
     enc_val, mask = _CP_SLOTS[idx]
     # decode
-    result = (enc_val ^ mask) if isinstance(enc_val, int) else enc_val
+    is_num = isinstance(enc_val, int) and not isinstance(enc_val, bool)
+    result = (enc_val ^ mask) if is_num else enc_val
     # mutate
-    rh = result & _CP_MASK if isinstance(result, int) else hash(str(result)) & _CP_MASK
+    rh = result & _CP_MASK if (isinstance(result, int) and not isinstance(result, bool)) else hash(str(result)) & _CP_MASK
     _CP_LOG.append((idx, rh))
     if len(_CP_LOG) > 8:
         _CP_LOG.pop(0)
@@ -137,7 +138,7 @@ def _cp_get(idx):
     s  = ((s * _CP_MUL) + idx) & _CP_MASK
     _CP_STATE = s
     # re-encode slot
-    if isinstance(result, int):
+    if isinstance(result, int) and not isinstance(result, bool):
         nm = _cp_mask(s, idx)
         _CP_SLOTS[idx] = [result ^ nm, nm]
     return result
